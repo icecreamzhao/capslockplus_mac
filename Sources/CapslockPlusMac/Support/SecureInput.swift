@@ -1,9 +1,7 @@
 import Foundation
 import AppKit
 import Carbon
-
-@_silgen_name("CGSessionCopyCurrentDictionary")
-private func CGSessionCopyCurrentDictionary() -> Unmanaged<CFDictionary>?
+import CoreGraphics
 
 enum SecureInput {
     static func isEnabled() -> Bool {
@@ -12,7 +10,7 @@ enum SecureInput {
 
     static func ownerPID() -> pid_t? {
         guard let session = CGSessionCopyCurrentDictionary() else { return nil }
-        let dict = session.takeRetainedValue() as NSDictionary
+        let dict = session as NSDictionary
         guard let value = dict["kCGSSessionSecureInputPID"] else { return nil }
         if let number = value as? NSNumber {
             return pid_t(number.int32Value)
