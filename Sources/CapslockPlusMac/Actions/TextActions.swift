@@ -1,0 +1,130 @@
+import Foundation
+import CoreGraphics
+
+enum TextActions {
+    private static let left: CGKeyCode = 123
+    private static let right: CGKeyCode = 124
+    private static let down: CGKeyCode = 125
+    private static let up: CGKeyCode = 126
+    private static let backspace: CGKeyCode = 51
+    private static let forwardDelete: CGKeyCode = 117
+    private static let enter: CGKeyCode = 36
+
+    static func run(_ action: Action) -> Bool {
+        switch action {
+        case .moveLeft:
+            KeyPost.key(left)
+        case .moveRight:
+            KeyPost.key(right)
+        case .moveUp:
+            KeyPost.key(up)
+        case .moveDown:
+            KeyPost.key(down)
+        case .moveWordLeft:
+            KeyPost.key(left, flags: .maskAlternate)
+        case .moveWordRight:
+            KeyPost.key(right, flags: .maskAlternate)
+        case .moveLineStart:
+            KeyPost.key(left, flags: .maskCommand)
+        case .moveLineEnd:
+            KeyPost.key(right, flags: .maskCommand)
+        case .moveUp10:
+            repeatKey(up, count: 10)
+        case .moveDown10:
+            repeatKey(down, count: 10)
+        case .selectLeft:
+            KeyPost.key(left, flags: .maskShift)
+        case .selectRight:
+            KeyPost.key(right, flags: .maskShift)
+        case .selectWordLeft:
+            KeyPost.key(left, flags: [.maskAlternate, .maskShift])
+        case .selectWordRight:
+            KeyPost.key(right, flags: [.maskAlternate, .maskShift])
+        case .selectUp:
+            KeyPost.key(up, flags: .maskShift)
+        case .selectDown:
+            KeyPost.key(down, flags: .maskShift)
+        case .selectLineStart:
+            KeyPost.key(left, flags: [.maskCommand, .maskShift])
+        case .selectLineEnd:
+            KeyPost.key(right, flags: [.maskCommand, .maskShift])
+        case .selectUp10:
+            repeatKey(up, count: 10, flags: .maskShift)
+        case .selectDown10:
+            repeatKey(down, count: 10, flags: .maskShift)
+        case .deleteBackward:
+            KeyPost.key(backspace)
+        case .deleteForward:
+            KeyPost.key(forwardDelete)
+        case .deleteWordBackward:
+            KeyPost.key(backspace, flags: .maskAlternate)
+        case .deleteToLineStart:
+            KeyPost.key(left, flags: [.maskCommand, .maskShift])
+            KeyPost.key(backspace)
+        case .deleteToLineEnd:
+            KeyPost.key(right, flags: [.maskCommand, .maskShift])
+            KeyPost.key(backspace)
+        case .deleteLine:
+            KeyPost.key(left, flags: .maskCommand)
+            KeyPost.key(right, flags: [.maskCommand, .maskShift])
+            KeyPost.key(backspace)
+            KeyPost.key(backspace)
+        case .insertLineBelow:
+            KeyPost.key(right, flags: .maskCommand)
+            KeyPost.key(enter)
+        case .pressReturn:
+            KeyPost.key(enter)
+        case .selectCurrentWord:
+            KeyPost.key(left, flags: [.maskAlternate, .maskShift])
+        case .wrapSelection(let kind):
+            wrapSelection(kind)
+        default:
+            return false
+        }
+        return true
+    }
+
+    private static func repeatKey(_ code: CGKeyCode, count: Int, flags: CGEventFlags = []) {
+        for _ in 0..<count {
+            KeyPost.key(code, flags: flags)
+        }
+    }
+
+    private static func wrapSelection(_ kind: String) {
+        let pairs: [String: (String, String)] = [
+            "paren": ("(", ")"),
+            "parentheses": ("(", ")"),
+            "bracket": ("[", "]"),
+            "brackets": ("[", "]"),
+            "brace": ("{", "}"),
+            "braces": ("{", "}"),
+            "angle": ("<", ">"),
+            "quote": ("\"", "\""),
+            "doublequote": ("\"", "\""),
+            "singlequote": ("'", "'"),
+            "backtick": ("`", "`"),
+            "markdown": ("`", "`")
+        ]
+        guard let (prefix, suffix) = pairs[kind.lowercased()] else {
+            Log.warn("wrapSelection failed unknown kind=\(kind)")
+            return
+        }
+
+        if let text = AX.selectedText(), !text.isEmpty {
+            let range = AX.selectedRange()
+            if AX.setSelectedText(prefix + text + suffix) {
+                if let original = range {
+                    let caret = original.location
+                        + (prefix as NSString).length
+                        + (text as NSString).length
+                    _ = AX.setSelectedRange(CFRange(location: caret, length: 0))
+                }
+                return
+            }
+        }
+
+        if !AX.wrapSelectionViaClipboard(prefix: prefix, suffix: suffix) {
+            Log.warn("wrapSelection failed")
+        }
+    }
+}
