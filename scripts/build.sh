@@ -14,6 +14,8 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/CapslockPlusMac" "$APP/Contents/MacOS/CapslockPlusMac"
 cp resources/Info.plist "$APP/Contents/Info.plist"
+# 菜单栏图标等资源（vector PDF 走 isTemplate，深浅色菜单栏自动反色）
+cp resources/*.pdf "$APP/Contents/Resources/" 2>/dev/null || true
 
 codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$APP"
 codesign --verify --strict --verbose=2 "$APP"
