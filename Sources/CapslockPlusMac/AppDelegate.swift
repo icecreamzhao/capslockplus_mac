@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var permissionItem: NSMenuItem?
     private var remapItem: NSMenuItem?
+    private var secureInputItem: NSMenuItem?
+    private var secureInputTimer: Timer?
+    private var secureInputOn = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("app=start")
@@ -20,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Config.shared.loadOrCreate()
         AX.requestPermission()
         setupStatusItem()
+        startSecureInputMonitor()
 
         let engine = EventTapEngine(caps: caps)
         self.engine = engine
@@ -45,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        secureInputTimer?.invalidate()
+        secureInputTimer = nil
         SystemEvents.shared.stop()
         KeyRemap.remove()
         engine?.stop()
@@ -54,6 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
+        secureInputItem?.title = secureInputTitle
     }
 
     private func installSignalHandlers() {
@@ -110,11 +117,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(permission)
         permissionItem = permission
 
+        let secureInput = NSMenuItem(title: secureInputTitle, action: nil, keyEquivalent: "")
+        secureInput.isEnabled = false
+        menu.addItem(secureInput)
+        secureInputItem = secureInput
+
         menu.addItem(.separator())
         menu.addItem(menuItem("退出", action: #selector(quit)))
 
         item.menu = menu
         statusItem = item
+    }
+
+    private func startSecureInputMonitor() {
+        let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.pollSecureInput()
+        }
+        timer.tolerance = 0.2
+        secureInputTimer = timer
+    }
+
+    private func pollSecureInput() {
+        let on = SecureInput.isEnabled()
+        guard on != secureInputOn else { return }
+        secureInputOn = on
+        secureInputItem?.title = secureInputTitle
+
+        if on {
+            let name = SecureInput.ownerName()
+            let pid = SecureInput.ownerPID() ?? 0
+            Log.warn("secureInput on app=\(name ?? "?") pid=\(pid)")
+            caps.forceReset(reason: "secureInput")
+            let image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "安全输入")
+                ?? NSImage(systemSymbolName: "lock", accessibilityDescription: "安全输入")
+            image?.isTemplate = true
+            statusItem?.button?.image = image
+            statusItem?.button?.toolTip = "因 \(name ?? "某个 App") 开启安全输入，热键暂停"
+        } else {
+            Log.info("secureInput off")
+            let image = NSImage(systemSymbolName: "capsule.portrait", accessibilityDescription: "Capslock+")
+                ?? NSImage(systemSymbolName: "command", accessibilityDescription: "Capslock+")
+            image?.isTemplate = true
+            statusItem?.button?.image = image
+            statusItem?.button?.toolTip = "Capslock+"
+            engine?.ensureHealthy()
+        }
+    }
+
+    private var secureInputTitle: String {
+        guard secureInputOn else { return "安全输入：关" }
+        return "安全输入：开（\(SecureInput.ownerName() ?? "某个 App")）"
     }
 
     private func menuItem(_ title: String, action: Selector) -> NSMenuItem {

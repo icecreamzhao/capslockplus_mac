@@ -62,6 +62,15 @@ final class CapsState {
         armWatchdog()
     }
 
+    func forceReset(reason: String) {
+        lock.lock()
+        watchdogGeneration &+= 1
+        down = false
+        usedAction = false
+        lock.unlock()
+        Log.info("prefix reset reason=\(reason)")
+    }
+
     private func armWatchdog() {
         lock.lock()
         watchdogGeneration &+= 1
