@@ -97,7 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let image = statusImage(["cat.fill", "capsule.portrait", "command"], description: "Capslock+")
+        let image = normalStatusImage()
         item.button?.image = image
         item.button?.toolTip = "Capslock+"
 
@@ -151,11 +151,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem?.button?.toolTip = "因 \(name ?? "某个 App") 开启安全输入，热键暂停"
         } else {
             Log.info("secureInput off")
-            let image = statusImage(["cat.fill", "capsule.portrait", "command"], description: "Capslock+")
+            let image = normalStatusImage()
             statusItem?.button?.image = image
             statusItem?.button?.toolTip = "Capslock+"
             engine?.ensureHealthy()
         }
+    }
+
+    private func normalStatusImage() -> NSImage? {
+        if let path = Bundle.main.path(forResource: "MenuCat", ofType: "pdf") {
+            if let image = NSImage(contentsOfFile: path) {
+                image.isTemplate = true
+                image.size = NSSize(width: 18, height: 18)
+                return image
+            }
+            Log.warn("menuIcon fallback reason=loadFailed path=\(path)")
+        } else {
+            Log.warn("menuIcon fallback reason=resourceMissing name=MenuCat.pdf")
+        }
+
+        let image = statusImage(["cat.fill", "capsule.portrait", "command"], description: "Capslock+")
+        if image == nil {
+            Log.warn("menuIcon fallback reason=symbolMissing")
+        }
+        return image
     }
 
     private func statusImage(_ names: [String], description: String) -> NSImage? {
