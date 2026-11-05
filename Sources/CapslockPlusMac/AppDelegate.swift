@@ -26,17 +26,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !engine.start() {
             removeStaleRemapIfNeeded()
             showTapFailureAlert()
-            return
+        } else {
+            removeStaleRemapIfNeeded()
+            if !KeyRemap.apply() {
+                Log.error("keyremap failed")
+                showRemapFailureAlert()
+            }
         }
 
-        removeStaleRemapIfNeeded()
-        if !KeyRemap.apply() {
-            Log.error("keyremap failed")
-            showRemapFailureAlert()
+        let systemEvents = SystemEvents.shared
+        systemEvents.onWake = { [weak self] in
+            self?.recover(reason: "wake")
         }
+        systemEvents.onHIDDeviceChange = { [weak self] in
+            self?.recover(reason: "hidchange")
+        }
+        systemEvents.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        SystemEvents.shared.stop()
         KeyRemap.remove()
         engine?.stop()
         Log.info("app=stop")
@@ -57,6 +66,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard KeyRemap.isApplied() else { return }
         KeyRemap.remove()
         Log.info("keyremap stale removed")
+    }
+
+    private func recover(reason: String) {
+        if reason == "wake" && !AX.isTrusted {
+            Log.error("ax revoked")
+            engine?.stop()
+            if let engine = engine {
+                let ok = engine.start()
+                Log.info("tap=recreated \(ok ? "ok" : "fail")")
+            }
+        } else {
+            engine?.ensureHealthy()
+        }
+
+        if !KeyRemap.isApplied() {
+            _ = KeyRemap.apply()
+            Log.info("remap reapplied reason=\(reason)")
+        } else {
+            Log.info("remap ok reason=\(reason)")
+        }
     }
 
     private func setupStatusItem() {

@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CoreGraphics
+import CoreFoundation
 
 private func capsEventTapCallback(
     proxy: CGEventTapProxy,
@@ -24,6 +25,26 @@ final class EventTapEngine {
 
     init(caps: CapsState) {
         self.caps = caps
+    }
+
+    var isAlive: Bool {
+        guard let tap = tap else { return false }
+        return CFMachPortIsValid(tap)
+    }
+
+    func ensureHealthy() {
+        guard let tap = tap, CFMachPortIsValid(tap) else {
+            stop()
+            let ok = start()
+            Log.info("tap=recreated \(ok ? "ok" : "fail")")
+            return
+        }
+        if !CGEvent.tapIsEnabled(tap: tap) {
+            CGEvent.tapEnable(tap: tap, enable: true)
+            Log.info("tap=reenabled")
+            return
+        }
+        Log.info("tap=ok")
     }
 
     func start() -> Bool {
