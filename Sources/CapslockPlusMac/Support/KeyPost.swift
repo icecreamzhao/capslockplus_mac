@@ -10,12 +10,12 @@ enum KeyPost {
     }
 
     private static func post(_ code: CGKeyCode, flags: CGEventFlags, down: Bool) {
-        guard let source = CGEventSource(stateID: .hidSystemState),
+        guard let source = CGEventSource(stateID: .combinedSessionState),
               let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down) else {
             return
         }
         event.flags = flags
         event.setIntegerValueField(.eventSourceUserData, value: magic)
-        event.post(tap: .cghidEventTap)
+        event.post(tap: .cgSessionEventTap)
     }
 }
