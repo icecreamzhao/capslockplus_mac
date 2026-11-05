@@ -27,10 +27,28 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**�
 ./scripts/build.sh          # swift build + 组装 .app + 签名（需要登录钥匙串已解锁）
 ./scripts/run.sh            # 构建并重启
 ./scripts/build-mac.sh      # 从 Linux 侧 ssh 到 Mac 构建（本项目实际用的方式）
+./scripts/sync-to-mac.sh    # 让 Mac 侧仓库快进到 origin/master
 ```
 
 产物在 `dist/CapslockPlusMac.app`，用 `Apple Development: 1127534615@qq.com` 签名。
 **签名身份不要换**：TCC 授权（辅助功能 / 输入监控）跟签名绑定，换了要重新授权。
+
+## 仓库与两端分工
+
+远程仓库：`git@github.com:icecreamzhao/capslockplus_mac.git`（macOS 与 Linux 两份工作副本共用）
+
+- **Linux 侧**（`/home/ubuntu/projects/capslock_plus_mac`）：写代码、提交、`git push`
+- **Mac 侧**（`~/projects/capslock_plus_mac`）：只 `git pull --ff-only` + 编译验证
+
+```bash
+# Linux：改完 -> 提交 -> push -> 让 Mac 快进
+git add -A && git commit -m "..." && git push origin master
+./scripts/sync-to-mac.sh && ./scripts/build-mac.sh
+```
+
+**不要再用 rsync 在两份副本之间搬文件**：两边各有 `.git`，rsync 会让历史互相覆盖。
+两边都有未提交改动时 `sync-to-mac.sh` 会直接拒绝执行。
+
 
 首次运行需要在「系统设置 > 隐私与安全性」里授予 **辅助功能** 和 **输入监控**。
 
