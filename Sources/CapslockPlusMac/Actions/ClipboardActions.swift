@@ -61,7 +61,7 @@ enum ClipboardActions {
         let before = general.changeCount
         KeyPost.key(keyCode, flags: .maskCommand)
 
-        let deadline = Date().addingTimeInterval(0.3)
+        let deadline = Date().addingTimeInterval(0.6)
         while general.changeCount == before && Date() < deadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
