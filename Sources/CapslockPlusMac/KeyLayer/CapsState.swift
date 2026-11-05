@@ -12,12 +12,7 @@ final class CapsState {
     private var down = false
     private var pressTime: CFAbsoluteTime = 0
     private var usedAction = false
-    private var lockIntent: Bool
-    private var suppressUntil: CFAbsoluteTime = 0
-
-    init() {
-        lockIntent = HIDCapsLock.shared.isLocked
-    }
+    private var watchdogGeneration = 0
 
     var isDown: Bool {
         lock.lock()
@@ -25,65 +20,74 @@ final class CapsState {
         return down
     }
 
-    func markActionUsed() {
+    func prefixKeyDown() {
         lock.lock()
-        defer { lock.unlock() }
-        usedAction = true
-    }
-
-    func capsFlagsChanged() {
-        lock.lock()
-        let now = CFAbsoluteTimeGetCurrent()
-        if now < suppressUntil {
+        if down {
             lock.unlock()
+            armWatchdog()
             return
         }
-        down.toggle()
-        let isDownNow = down
-        if isDownNow {
-            pressTime = now
-            usedAction = false
-        }
-        let shouldTap = !isDownNow
-            && (now - pressTime) < (Double(Config.shared.keymap.chordMaxMs) / 1000.0)
-            && !usedAction
+        down = true
+        pressTime = CFAbsoluteTimeGetCurrent()
+        usedAction = false
         lock.unlock()
 
-        if isDownNow {
-            Log.info("capsDown")
-            reconcile()
-        } else {
-            Log.info("capsUp")
-            if shouldTap {
-                performTap()
-            }
-            reconcile()
+        Log.info("prefix down")
+        armWatchdog()
+    }
+
+    func prefixKeyUp() {
+        lock.lock()
+        watchdogGeneration &+= 1
+        guard down else {
+            lock.unlock()
+            Log.warn("prefix up without down")
+            return
+        }
+        down = false
+        let elapsed = CFAbsoluteTimeGetCurrent() - pressTime
+        let shouldTap = elapsed < (Double(Config.shared.keymap.chordMaxMs) / 1000.0) && !usedAction
+        lock.unlock()
+
+        Log.info("prefix up")
+        if shouldTap {
+            performTap()
         }
     }
 
-    private func reconcile() {
+    func markActionUsed() {
         lock.lock()
-        let desired = lockIntent
+        usedAction = true
+        lock.unlock()
+        armWatchdog()
+    }
+
+    private func armWatchdog() {
+        lock.lock()
+        watchdogGeneration &+= 1
+        let generation = watchdogGeneration
         lock.unlock()
 
-        guard HIDCapsLock.shared.isLocked != desired else { return }
-
-        lock.lock()
-        suppressUntil = CFAbsoluteTimeGetCurrent() + 0.03
-        lock.unlock()
-        HIDCapsLock.shared.reconcile(desired: desired)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            let expired = self.watchdogGeneration == generation && self.down
+            if expired {
+                self.down = false
+            }
+            self.lock.unlock()
+            if expired {
+                Log.warn("prefix watchdog reset")
+            }
+        }
     }
 
     private func performTap() {
         switch Config.shared.keymap.tap {
         case .toggleCapsLock:
-            lock.lock()
-            lockIntent.toggle()
-            let on = lockIntent
-            suppressUntil = CFAbsoluteTimeGetCurrent() + 0.03
-            lock.unlock()
+            let on = !HIDCapsLock.shared.isLocked
             HIDCapsLock.shared.setLocked(on)
-            Log.info("capsTap -> toggleCaps state=\(on ? "on" : "off")")
+            Log.info("prefixTap -> toggleCaps state=\(on ? "on" : "off")")
         case .escape:
             KeyPost.key(53)
         case .none:

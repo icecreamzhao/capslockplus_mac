@@ -16,6 +16,8 @@ private func capsEventTapCallback(
 }
 
 final class EventTapEngine {
+    private static let prefixKeyCode: CGKeyCode = 79
+
     private(set) var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private let caps: CapsState
@@ -91,14 +93,19 @@ final class EventTapEngine {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             return Unmanaged.passUnretained(event)
-        case .flagsChanged:
+        case .keyUp:
             let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
-            if keyCode == KeyCodes.caps {
-                caps.capsFlagsChanged()
+            if keyCode == EventTapEngine.prefixKeyCode {
+                caps.prefixKeyUp()
                 return nil
             }
             return Unmanaged.passUnretained(event)
         case .keyDown:
+            let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+            if keyCode == EventTapEngine.prefixKeyCode {
+                caps.prefixKeyDown()
+                return nil
+            }
             if handleKeyDown(event) {
                 return nil
             }
@@ -121,7 +128,8 @@ final class EventTapEngine {
             return true
         }
 
-        Log.info("chord \(binding.chordText) -> \(binding.actionName)")
+        let chordText = binding.chordText.replacingOccurrences(of: "caps", with: "prefix")
+        Log.info("chord \(chordText) -> \(binding.actionName)")
         ActionRunner.run(binding.action)
         return true
     }
@@ -131,8 +139,8 @@ final class EventTapEngine {
             let shift = UInt64(type.rawValue & 0x3F)
             return CGEventMask(1) << shift
         }
-        return bit(.flagsChanged)
-            | bit(.keyDown)
+        return bit(.keyDown)
+            | bit(.keyUp)
             | bit(.tapDisabledByTimeout)
             | bit(.tapDisabledByUserInput)
     }
