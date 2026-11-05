@@ -2,6 +2,11 @@ import Foundation
 import AppKit
 import ApplicationServices
 
+private func handleTerminationSignal(_: Int32) {
+    KeyRemap.remove()
+    exit(0)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let caps = CapsState()
     private var engine: EventTapEngine?
@@ -11,19 +16,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.info("app=start")
+        installSignalHandlers()
         Config.shared.loadOrCreate()
         AX.requestPermission()
         setupStatusItem()
 
-        if !KeyRemap.apply() {
-            Log.error("keyremap failed")
-            showRemapFailureAlert()
-        }
-
         let engine = EventTapEngine(caps: caps)
         self.engine = engine
         if !engine.start() {
+            removeStaleRemapIfNeeded()
             showTapFailureAlert()
+            return
+        }
+
+        removeStaleRemapIfNeeded()
+        if !KeyRemap.apply() {
+            Log.error("keyremap failed")
+            showRemapFailureAlert()
         }
     }
 
@@ -36,6 +45,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
+    }
+
+    private func installSignalHandlers() {
+        _ = signal(SIGTERM, handleTerminationSignal)
+        _ = signal(SIGINT, handleTerminationSignal)
+        _ = signal(SIGHUP, handleTerminationSignal)
+    }
+
+    private func removeStaleRemapIfNeeded() {
+        guard KeyRemap.isApplied() else { return }
+        KeyRemap.remove()
+        Log.info("keyremap stale removed")
     }
 
     private func setupStatusItem() {

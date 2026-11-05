@@ -4,11 +4,28 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用移植版。范围只做三块�
 
 ## 0. 目标与非目标
 
-目标：Caps Lock 按住当修饰键，与字母/数字组合触发文本编辑动作；单按仍切换大小写；
-多剪贴板（系统剪贴板 + N 个独立剪贴板）；窗口绑定（caps+数字 激活、caps+alt+数字 绑定）。
+目标：Caps Lock 按住当修饰键，与字母/数字组合触发文本编辑动作；单按仍切换大小写；窗口绑定。
 
 非目标（v0 不做）：qbar/启动器、翻译、计算板、窗口透明/置顶、热字串（hotstring）、
 按 App 切换键位方案、自动更新、公证分发。配置热重载只做 caps+F5 重读键位文件。
+
+**已砍掉：多剪贴板**（2026-11-06）。真实原因是带修饰键的 chord 里合成 `Cmd+C` 时，
+WindowServer 仍会合并物理修饰位，目标 app 收到的不是复制；无修饰的方向键动作不受影响，
+所以文本编辑/窗口绑定正常而剪贴板全线失效。用户决定不做。`Actions/ClipboardActions.swift`
+代码保留但不再绑定默认键位（caps+c/x/v 设为 none），留待以后单独处理。
+
+## 键层实现现状（与最初设计的差异）
+
+最初尝试纯用户态：吞掉物理 Caps Lock 的 `flagsChanged`，再用 `IOHIDSetModifierLockState`
+维护锁定状态。实机验证失败——吞事件后 WindowServer 的修饰键状态与 app 失步，用户体感是
+"一直按着 caps，打不了字"。现方案：
+
+- `hidutil` 把 Caps Lock 重映射为 **F18**（app 启动时 apply，退出/收到 SIGTERM 时 remove）
+- F18 是普通键，app 吞掉它的 keyDown/keyUp 自己计时
+- 单按（<300ms 且未触发 chord）→ `IOHIDSetModifierLockState` 切真实大小写锁定
+- IOHID 签名：`Get(connect, selector, bool*) -> kern_return_t`，`Set(connect, selector, bool) -> kern_return_t`，
+  connect 来自 `IOServiceOpen(service, mach_task_self_, 1, &conn)`（反汇编 Capslox 调用点确认）
+
 
 ## 1. 技术形态
 
