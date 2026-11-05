@@ -1,0 +1,84 @@
+# capslock_plus_mac
+
+Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**文本编辑**、**窗口绑定**。
+单按 Caps 仍切换大小写。
+
+## 用法
+
+按住 **Caps** 当修饰键：
+
+```
+光标    s 左   f 右   e 上   d 下        a 左一词   g 右一词   t 上10行  b 下10行
+选区    j 左   l 右   i 上   k 下        h 左选一词  y 上10行   n 下10行
+        u 选到行首   o 选到行尾   , 当前词   . 右选一词
+行      p 行首   ; 行尾
+删除    w 删前一字符   r 删后一字符   [ 删到行首   / 删到行尾
+        backspace 删整行     enter 下方插入空行     space 回车
+窗口    alt+1..0 绑定当前窗口      1..0 激活已绑定的窗口
+单按 Caps = 切换大小写
+```
+
+`alt` = Mac 的 **Option ⌥**。完整键位在 `~/.config/capslock-plus-mac/keymap.json`，
+改完按 **caps+F5** 生效，不需要重新编译。
+
+## 构建与运行
+
+```bash
+./scripts/build.sh          # swift build + 组装 .app + 签名（需要登录钥匙串已解锁）
+./scripts/run.sh            # 构建并重启
+./scripts/build-mac.sh      # 从 Linux 侧 ssh 到 Mac 构建（本项目实际用的方式）
+```
+
+产物在 `dist/CapslockPlusMac.app`，用 `Apple Development: 1127534615@qq.com` 签名。
+**签名身份不要换**：TCC 授权（辅助功能 / 输入监控）跟签名绑定，换了要重新授权。
+
+首次运行需要在「系统设置 > 隐私与安全性」里授予 **辅助功能** 和 **输入监控**。
+
+## 键盘层怎么工作的
+
+1. 启动时用 `hidutil` 把 Caps Lock 重映射成 F18（系统层，不需要 root）
+2. app 在 HID 层建 CGEventTap，吞掉 F18 的 keyDown/keyUp，自己记按下/松开
+3. F18 按住期间的其他键 → 查键位表执行动作；F18 单按（<300ms）→ 切真实大小写锁定
+
+不是把 caps 当修饰键硬抓——那条路（吞 `flagsChanged` + 自己维护锁定状态）实机验证会让
+WindowServer 修饰键状态失步，表现为"一直按着 caps，打不了字"。
+
+## 恢复手段
+
+```bash
+./scripts/keyremap.sh off     # 撤掉 caps->F18（app 被 kill -9 后 Caps 变死键时用）
+./scripts/keyremap.sh status  # 看当前状态
+```
+
+app 正常退出、收到 SIGTERM/SIGINT 时会自己撤掉映射；睡眠唤醒和键盘热插拔后会自己补回。
+
+## 已知限制
+
+- `kill -9` 无法拦截，映射会残留，需手动 `keyremap.sh off`
+- 窗口跳转对少数窗口会记 `ax raiseWindow failed`（窗口标题在绑定后被改变，如 Terminal），但 app 本身会切过去
+- 多剪贴板未实现：带修饰键的 chord 里合成 `Cmd+C` 时目标 app 收到的不是复制（无修饰的方向键动作不受影响），见 `docs/SPEC.md` 的说明
+
+## 日志
+
+`~/Library/Logs/CapslockPlusMac.log`，菜单栏图标 → 「打开日志」。
+
+## 代码结构
+
+```
+Sources/CapslockPlusMac/
+  main.swift                 入口，--selftest
+  AppDelegate.swift          生命周期、状态栏、唤醒/设备变化恢复
+  Config.swift               键位表默认值 + 读写 + 重载
+  KeyLayer/EventTapEngine     CGEventTap、事件分流、MAGIC 过滤
+  KeyLayer/CapsState          前缀键状态机、单按判定、看门狗
+  KeyLayer/HIDCapsLock        IOHID 锁定状态读写（私有 API）
+  KeyLayer/Chord              键位组合解析
+  Actions/TextActions         光标/选区/删除（合成按键）
+  Actions/WindowActions       窗口绑定与激活（AX）
+  Support/AX                  Accessibility 封装
+  Support/KeyPost             带 MAGIC 的按键合成
+  Support/KeyRemap            hidutil 重映射
+  Support/SystemEvents        唤醒 + HID 设备变化通知
+docs/SPEC.md                  v0 规格与决策记录
+docs/codex-tasks/            逐轮工单（01 骨架 → 05 唤醒恢复）
+```
