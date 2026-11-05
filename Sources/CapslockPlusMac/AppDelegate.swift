@@ -97,9 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let image = NSImage(systemSymbolName: "capsule.portrait", accessibilityDescription: "Capslock+")
-            ?? NSImage(systemSymbolName: "command", accessibilityDescription: "Capslock+")
-        image?.isTemplate = true
+        let image = statusImage(["cat.fill", "capsule.portrait", "command"], description: "Capslock+")
         item.button?.image = image
         item.button?.toolTip = "Capslock+"
 
@@ -148,20 +146,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let pid = SecureInput.ownerPID() ?? 0
             Log.warn("secureInput on app=\(name ?? "?") pid=\(pid)")
             caps.forceReset(reason: "secureInput")
-            let image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "安全输入")
-                ?? NSImage(systemSymbolName: "lock", accessibilityDescription: "安全输入")
-            image?.isTemplate = true
+            let image = statusImage(["lock.fill", "lock"], description: "安全输入")
             statusItem?.button?.image = image
             statusItem?.button?.toolTip = "因 \(name ?? "某个 App") 开启安全输入，热键暂停"
         } else {
             Log.info("secureInput off")
-            let image = NSImage(systemSymbolName: "capsule.portrait", accessibilityDescription: "Capslock+")
-                ?? NSImage(systemSymbolName: "command", accessibilityDescription: "Capslock+")
-            image?.isTemplate = true
+            let image = statusImage(["cat.fill", "capsule.portrait", "command"], description: "Capslock+")
             statusItem?.button?.image = image
             statusItem?.button?.toolTip = "Capslock+"
             engine?.ensureHealthy()
         }
+    }
+
+    private func statusImage(_ names: [String], description: String) -> NSImage? {
+        for name in names {
+            if let image = NSImage(systemSymbolName: name, accessibilityDescription: description) {
+                image.isTemplate = true
+                image.size = NSSize(width: 18, height: 18)
+                return image
+            }
+        }
+        return nil
     }
 
     private var secureInputTitle: String {
