@@ -57,6 +57,7 @@ app 正常退出、收到 SIGTERM/SIGINT 时会自己撤掉映射；睡眠唤醒
 - `kill -9` 无法拦截，映射会残留，需手动 `keyremap.sh off`
 - 窗口跳转对少数窗口会记 `ax raiseWindow failed`（窗口标题在绑定后被改变，如 Terminal），但 app 本身会切过去
 - 多剪贴板未实现：带修饰键的 chord 里合成 `Cmd+C` 时目标 app 收到的不是复制（无修饰的方向键动作不受影响），见 `docs/SPEC.md` 的说明
+- **Secure Input 期间热键完全失效**（密码框、`sudo` 提示）：系统不把按键投递给 event tap。app 会做两件事——菜单栏图标变锁并显示是哪个 App 开启的，以及把前缀键状态复位；解除后自动恢复。实测日志：整个 sudo 密码提示期间 0 条按键事件。
 
 ## 日志
 
