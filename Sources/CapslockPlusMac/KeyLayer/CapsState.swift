@@ -13,6 +13,8 @@ final class CapsState {
     private var pressTime: CFAbsoluteTime = 0
     private var usedAction = false
     private var watchdogGeneration = 0
+    private var longPressFired = false
+    private var longPressGeneration = 0
 
     var isDown: Bool {
         lock.lock()
@@ -30,15 +32,18 @@ final class CapsState {
         down = true
         pressTime = CFAbsoluteTimeGetCurrent()
         usedAction = false
+        longPressFired = false
         lock.unlock()
 
         Log.info("prefix down")
         armWatchdog()
+        armLongPress()
     }
 
     func prefixKeyUp() {
         lock.lock()
         watchdogGeneration &+= 1
+        longPressGeneration &+= 1
         guard down else {
             lock.unlock()
             Log.warn("prefix up without down")
@@ -47,22 +52,29 @@ final class CapsState {
         down = false
         let elapsed = CFAbsoluteTimeGetCurrent() - pressTime
         let actionUsed = usedAction
+        let fired = longPressFired
+        if fired {
+            longPressFired = false
+        }
         lock.unlock()
 
+        if fired {
+            Log.info("prefix up (longpress, no tap)")
+            return
+        }
         Log.info("prefix up")
         if actionUsed {
             return
         }
         if elapsed < (Double(Config.shared.keymap.chordMaxMs) / 1000.0) {
             performTap()
-        } else if elapsed >= (Double(Config.shared.keymap.longPressMs) / 1000.0) {
-            performLongPress(elapsedMs: Int(elapsed * 1000))
         }
     }
 
     func markActionUsed() {
         lock.lock()
         usedAction = true
+        longPressGeneration &+= 1
         lock.unlock()
         armWatchdog()
     }
@@ -70,10 +82,33 @@ final class CapsState {
     func forceReset(reason: String) {
         lock.lock()
         watchdogGeneration &+= 1
+        longPressGeneration &+= 1
         down = false
         usedAction = false
+        longPressFired = false
         lock.unlock()
         Log.info("prefix reset reason=\(reason)")
+    }
+
+    private func armLongPress() {
+        lock.lock()
+        longPressGeneration &+= 1
+        let generation = longPressGeneration
+        lock.unlock()
+
+        let ms = Config.shared.keymap.longPressMs
+        DispatchQueue.main.asyncAfter(deadline: .now() + (Double(ms) / 1000.0)) { [weak self] in
+            guard let self = self else { return }
+            self.lock.lock()
+            let fire = self.longPressGeneration == generation && self.down && !self.usedAction && !self.longPressFired
+            if fire {
+                self.longPressFired = true
+            }
+            self.lock.unlock()
+            guard fire else { return }
+            self.performLongPress(elapsedMs: ms)
+            self.armWatchdog()
+        }
     }
 
     private func armWatchdog() {
@@ -82,7 +117,7 @@ final class CapsState {
         let generation = watchdogGeneration
         lock.unlock()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self = self else { return }
             self.lock.lock()
             let expired = self.watchdogGeneration == generation && self.down
