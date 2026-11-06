@@ -35,6 +35,18 @@ if CommandLine.arguments.contains("--selftest") {
     exit(runSelfTest())
 }
 
+if CommandLine.arguments.contains("--login-item-enable") {
+    let ok = LoginItem.enable()
+    print("login-item-enable \(ok ? "ok" : "fail")")
+    exit(ok ? 0 : 1)
+}
+
+if CommandLine.arguments.contains("--login-item-disable") {
+    let ok = LoginItem.disable()
+    print("login-item-disable \(ok ? "ok" : "fail")")
+    exit(ok ? 0 : 1)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()

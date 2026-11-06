@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var permissionItem: NSMenuItem?
     private var remapItem: NSMenuItem?
+    private var loginItemItem: NSMenuItem?
     private var secureInputItem: NSMenuItem?
     private var windowBindingsMenu: NSMenu?
     private var secureInputTimer: Timer?
@@ -62,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
+        refreshLoginItemMenuItem()
         secureInputItem?.title = secureInputTitle
         refreshWindowBindingsMenu()
     }
@@ -112,6 +114,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
         remapItem = remap
+
+        let loginItem = menuItem(loginItemTitle, action: #selector(toggleLoginItem))
+        loginItem.state = LoginItem.isEnabled() ? .on : .off
+        menu.addItem(loginItem)
+        loginItemItem = loginItem
 
         let permission = NSMenuItem(title: "辅助功能权限状态：未知", action: nil, keyEquivalent: "")
         permission.isEnabled = false
@@ -253,6 +260,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         "重映射 Caps→F18：\(KeyRemap.isApplied() ? "开" : "关")"
     }
 
+    private var loginItemTitle: String {
+        "开机自启：\(LoginItem.isEnabled() ? "开" : "关")"
+    }
+
+    private func refreshLoginItemMenuItem() {
+        let enabled = LoginItem.isEnabled()
+        loginItemItem?.title = "开机自启：\(enabled ? "开" : "关")"
+        loginItemItem?.state = enabled ? .on : .off
+    }
+
     @objc private func reloadKeymap() {
         Config.shared.reload()
     }
@@ -274,6 +291,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("keyremap failed")
         }
         remapItem?.title = remapTitle
+    }
+
+    @objc private func toggleLoginItem() {
+        let ok = LoginItem.isEnabled() ? LoginItem.disable() : LoginItem.enable()
+        if !ok {
+            Log.error("loginItem toggle fail")
+        }
+        refreshLoginItemMenuItem()
     }
 
     @objc private func clearWindowBindings() {
