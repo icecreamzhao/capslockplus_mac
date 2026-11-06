@@ -23,6 +23,20 @@ enum AX {
         return elementAttribute(app, kAXFocusedWindowAttribute as CFString)
     }
 
+    @discardableResult
+    static func minimizeFocusedWindow() -> Bool {
+        let systemWide = AXUIElementCreateSystemWide()
+        guard let window = elementAttribute(systemWide, kAXFocusedWindowAttribute as CFString) else {
+            return false
+        }
+        let error = AXUIElementSetAttributeValue(
+            window,
+            kAXMinimizedAttribute as CFString,
+            kCFBooleanTrue
+        )
+        return error == .success
+    }
+
     static func focusedElement() -> AXUIElement? {
         guard let app = focusedApplication() else { return nil }
         return elementAttribute(app, kAXFocusedUIElementAttribute as CFString)
