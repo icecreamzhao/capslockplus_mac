@@ -16,10 +16,23 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**�
         backspace 删整行     enter 下方插入空行     space 回车
 窗口    alt+1..0 绑定当前窗口      1..0 激活已绑定的窗口
 单按 Caps = 切换大小写
+长按 Caps 0.6 秒 = 切换输入法（按住满 0.6s 当次即触发，只切一次；之后仍可按着继续用组合键）
 ```
 
 `alt` = Mac 的 **Option ⌥**。完整键位在 `~/.config/capslock-plus-mac/keymap.json`，
 改完按 **caps+F5** 生效，不需要重新编译。
+
+时间档位（`chordMaxMs` / `longPressMs` 可调，clamp 300–3000ms）：
+
+```
+< 300ms   切大小写
+300–600ms 空档（按住犹豫，什么都不做）
+≥ 600ms   切输入法
+```
+
+切换输入法走 Text Input Sources API 直接选源，**不依赖**系统「选择上一个输入源」快捷键。
+只认 `category=TISCategoryKeyboardInputSource` 且 `type` 为 KeyboardLayout / KeyboardInputMode 的源，
+所以不会切到 Emoji & Symbols、Dictation 这类假源（实测它们 `TISSelectInputSource` 返回成功但并不切换）。
 
 ## 构建与运行
 
