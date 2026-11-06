@@ -92,6 +92,21 @@ app 正常退出、收到 SIGTERM/SIGINT 时会自己撤掉映射；睡眠唤醒
 - 多剪贴板未实现：带修饰键的 chord 里合成 `Cmd+C` 时目标 app 收到的不是复制（无修饰的方向键动作不受影响），见 `docs/SPEC.md` 的说明
 - **Secure Input 期间热键完全失效**（密码框、`sudo` 提示）：系统不把按键投递给 event tap。app 会做两件事——菜单栏图标变锁并显示是哪个 App 开启的，以及把前缀键状态复位；解除后自动恢复。实测日志：整个 sudo 密码提示期间 0 条按键事件。
 
+## 安装与开机自启
+
+```bash
+ditto dist/CapslockPlusMac.app /Applications/CapslockPlusMac.app   # 装到标准位置
+```
+
+菜单里「开机自启」可开关，落盘到 `~/Library/LaunchAgents/com.littleboy.CapslockPlusMac.plist`：
+
+- `KeepAlive = { SuccessfulExit = false }` → **崩溃（非 0 退出）自动重拉**，主动退出/收到 SIGTERM 不重拉
+- `ThrottleInterval = 10`，`RunAtLoad = true`
+- 脚本可用 `CapslockPlusMac --login-item-enable | --login-item-disable`
+
+注意：如果换了 .app 所在路径（例如从 dist 挪到 /Applications），要重新开一次自启，否则 plist 里
+`ProgramArguments` 还指向旧路径。
+
 ## 数据文件
 
 ```
