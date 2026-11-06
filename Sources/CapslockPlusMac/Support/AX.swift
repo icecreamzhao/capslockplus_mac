@@ -100,30 +100,46 @@ enum AX {
         return raw as? String
     }
 
-    static func raiseWindow(pid: pid_t, title: String) {
+    @discardableResult
+    static func raiseWindow(pid: pid_t, titleHint: String) -> Bool {
+        guard !titleHint.isEmpty else { return false }
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
               let raw = value,
               CFGetTypeID(raw) == CFArrayGetTypeID() else {
             Log.warn("ax raiseWindow failed reason=no-windows")
-            return
+            return false
         }
         let windows = raw as! CFArray
+        var best: AXUIElement?
+        var bestRank = 0
         for index in 0..<CFArrayGetCount(windows) {
             guard let pointer = CFArrayGetValueAtIndex(windows, index) else { continue }
             let window = Unmanaged<AXUIElement>.fromOpaque(pointer).takeUnretainedValue()
             var titleValue: CFTypeRef?
             guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
-                  let windowTitle = titleValue as? String,
-                  windowTitle == title else {
+                  let windowTitle = titleValue as? String else {
                 continue
             }
-            if AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success {
-                return
+            let rank: Int
+            if windowTitle == titleHint {
+                rank = 3
+            } else if windowTitle.hasPrefix(titleHint) {
+                rank = 2
+            } else if windowTitle.contains(titleHint) {
+                rank = 1
+            } else {
+                continue
+            }
+            if rank > bestRank {
+                bestRank = rank
+                best = window
+                if rank == 3 { break }
             }
         }
-        Log.warn("ax raiseWindow failed title=\(title)")
+        guard let window = best else { return false }
+        return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
     }
 
     @discardableResult
