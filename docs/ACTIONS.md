@@ -1,0 +1,99 @@
+# 动作参考
+
+键位表：`~/.config/capslock-plus-mac/keymap.json`，改完按 **caps + F5** 生效。
+
+```json
+{
+  "tap": "toggleCapsLock",
+  "chordMaxMs": 300,
+  "longPressMs": 600,
+  "longPress": "switchInputSource",
+  "bindings": {
+    "caps+f": "moveRight",
+    "caps+t": "moveup(10)"
+  }
+}
+```
+
+- `tap`：短按 Caps（<`chordMaxMs`，且没按过其他键）要执行的动作，可以是下表任意一个
+- `longPress`：按住 ≥`longPressMs` 后触发的动作，同上；默认 `switchInputSource`
+- 动作名不区分大小写；解析不出来会写 `config unknown action=…` 并当作 `none`
+
+## 移动
+
+| 写法 | 作用 |
+|---|---|
+| `moveLeft` / `moveRight` / `moveUp` / `moveDown` | 左/右/上/下 |
+| `moveWordLeft` / `moveWordRight` | 按单词左右（Option+方向） |
+| `moveLineStart` / `moveLineEnd` | 行首 / 行尾（Command+方向） |
+| `moveUp10` / `moveDown10` | 上/下 10 行 |
+| `moveUp(20)` | 任意行数，`<base>(n)`，n 取 1–100 |
+
+`(n)` 可用的 base：`moveLeft moveRight moveUp moveDown moveWordLeft moveWordRight
+selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight deleteBackward deleteForward`
+
+## 选中
+
+| 写法 | 作用 |
+|---|---|
+| `selectLeft` / `selectRight` / `selectUp` / `selectDown` | 按字符 / 行选中 |
+| `selectWordLeft` / `selectWordRight` | 按单词选中 |
+| `selectLineStart` / `selectLineEnd` | 选中至行首 / 行尾 |
+| `selectUp10` / `selectDown10` | 上/下选 10 行 |
+| `selectDown(5)` | 任意行数 |
+| `selectCurrentWord` | 选中当前单词 |
+
+## 删除与编辑
+
+| 写法 | 作用 |
+|---|---|
+| `deleteBackward` / `deleteForward` | 退格 / 前向删除 |
+| `deleteWordBackward` / `deleteWordForward` | 向左 / 向右删一个单词 |
+| `deleteToLineStart` / `deleteToLineEnd` | 删至行首 / 行尾 |
+| `deleteToPageStart` / `deleteToPageEnd` | 删至文档开头 / 结尾 |
+| `deleteLine` | 删掉本行内容（保留空行） |
+| `hardDeleteLine` | 连行尾换行一起删（整行消失） |
+| `deleteAll` | 全选后删除 |
+| `insertLineBelow` | 下方插入新行 |
+| `pressReturn` | 回车 |
+| `wrapSelection(paren)` | 选中内容两端加括号，见下 |
+| `selectCurrentWord` | 选中当前词 |
+
+`wrapSelection(...)` 支持：`paren` `bracket` `brace` `angle` `quote` `singlequote` `backtick` `markdown`
+
+## 窗口
+
+| 写法 | 作用 |
+|---|---|
+| `window.bind(1)` … `window.bind(10)` | 绑定当前窗口到槽位（落盘） |
+| `window.activate(1)` … `window.activate(10)` | 激活槽位；App 没开会自动启动 |
+| `minimizeWindow` | 最小化当前窗口（全屏窗口会失败，日志 `minimize failed`） |
+| `launchApp(com.apple.Safari)` | 启动或激活指定 App（bundle id） |
+
+## 输入法 / 系统
+
+| 写法 | 作用 |
+|---|---|
+| `switchInputSource` | 切到下一个输入法（TIS 直接选源） |
+| `escape` | 发一个 Esc |
+| `toggleCapsLock` | 切大写锁定 |
+| `none` | 什么都不做 |
+| `reloadConfig` | 重新读 keymap.json（默认 `caps+F5`） |
+
+## 向目标 App 发按键
+
+| 写法 | 作用 |
+|---|---|
+| `send(cmd+shift+t)` | 发一组按键；多个用逗号：`send(cmd+t, cmd+w)` |
+| `type(Hello World)` | 直接输入这段文字（保留原大小写和空格） |
+
+`send` 里可用的修饰词：`cmd` `alt` `ctrl` `shift`；
+键名：`a`–`z` `0`–`9` `,` `.` `/` `-` `=` `;` `'` `[` `]` `` ` ``、
+`return` `enter` `tab` `space` `escape` `left` `right` `up` `down` `delete` `backspace`
+`pageup` `pagedown` `home` `end` `f1`–`f12`。
+
+## 已知不可用
+
+| 写法 | 说明 |
+|---|---|
+| `cut` `copy` `paste` `pastePlain` `extraClipboard.*` | 合成 Cmd+C 会被 WindowServer 合并物理修饰位，目标 App 不认作复制；代码保留但别绑 |
