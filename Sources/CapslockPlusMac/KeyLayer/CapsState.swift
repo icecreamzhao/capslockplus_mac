@@ -46,12 +46,17 @@ final class CapsState {
         }
         down = false
         let elapsed = CFAbsoluteTimeGetCurrent() - pressTime
-        let shouldTap = elapsed < (Double(Config.shared.keymap.chordMaxMs) / 1000.0) && !usedAction
+        let actionUsed = usedAction
         lock.unlock()
 
         Log.info("prefix up")
-        if shouldTap {
+        if actionUsed {
+            return
+        }
+        if elapsed < (Double(Config.shared.keymap.chordMaxMs) / 1000.0) {
             performTap()
+        } else if elapsed >= (Double(Config.shared.keymap.longPressMs) / 1000.0) {
+            performLongPress(elapsedMs: Int(elapsed * 1000))
         }
     }
 
@@ -101,6 +106,17 @@ final class CapsState {
             KeyPost.key(53)
         case .none:
             break
+        }
+    }
+
+    private func performLongPress(elapsedMs: Int) {
+        guard Config.shared.keymap.longPress == "switchInputSource" else {
+            return
+        }
+        if let name = InputSource.switchNext() {
+            Log.info("longpress \(elapsedMs)ms -> switchInputSource -> \(name)")
+        } else {
+            Log.warn("longpress \(elapsedMs)ms -> switchInputSource failed")
         }
     }
 }

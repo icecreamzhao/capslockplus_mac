@@ -49,6 +49,7 @@ enum Action: Equatable {
     case windowBind(Int)
     case windowActivate(Int)
     case reloadConfig
+    case switchInputSource
 
     var name: String {
         switch self {
@@ -95,6 +96,7 @@ enum Action: Equatable {
         case .windowBind(let index): return "window.bind(\(index))"
         case .windowActivate(let index): return "window.activate(\(index))"
         case .reloadConfig: return "reloadConfig"
+        case .switchInputSource: return "switchInputSource"
         }
     }
 
@@ -138,7 +140,8 @@ enum Action: Equatable {
         "extraclipboard.cut": .extraCut,
         "extraclipboard.copy": .extraCopy,
         "extraclipboard.paste": .extraPaste,
-        "reloadconfig": .reloadConfig
+        "reloadconfig": .reloadConfig,
+        "switchinputsource": .switchInputSource
     ]
 
     static func parse(_ raw: String) -> Action? {
@@ -182,6 +185,8 @@ struct Binding {
 struct Keymap {
     var tap: TapAction
     var chordMaxMs: Int
+    var longPressMs: Int
+    var longPress: String
     var bindings: [KeyCombo: Binding]
 }
 
@@ -267,7 +272,13 @@ final class Config {
                 chordText: chordText.lowercased()
             )
         }
-        return Keymap(tap: .toggleCapsLock, chordMaxMs: 300, bindings: bindings)
+        return Keymap(
+            tap: .toggleCapsLock,
+            chordMaxMs: 300,
+            longPressMs: 500,
+            longPress: "switchInputSource",
+            bindings: bindings
+        )
     }
 
     func loadOrCreate() {
@@ -308,6 +319,9 @@ final class Config {
         }
         let maxMs = (root["chordMaxMs"] as? NSNumber)?.intValue ?? 300
         let chordMaxMs = min(max(maxMs, 50), 2000)
+        let rawLongPressMs = (root["longPressMs"] as? NSNumber)?.intValue ?? 500
+        let longPressMs = min(max(rawLongPressMs, 300), 3000)
+        let longPress = (root["longPress"] as? String) ?? "switchInputSource"
 
         guard let rawBindings = root["bindings"] as? [String: Any] else {
             Log.warn("configLoad failed reason=bindings")
@@ -336,7 +350,13 @@ final class Config {
             return false
         }
 
-        keymap = Keymap(tap: tap, chordMaxMs: chordMaxMs, bindings: bindings)
+        keymap = Keymap(
+            tap: tap,
+            chordMaxMs: chordMaxMs,
+            longPressMs: longPressMs,
+            longPress: longPress,
+            bindings: bindings
+        )
         Log.info("configLoaded n=\(bindings.count)")
         return true
     }
@@ -349,6 +369,8 @@ final class Config {
         let root: [String: Any] = [
             "tap": "toggleCapsLock",
             "chordMaxMs": 300,
+            "longPressMs": 500,
+            "longPress": "switchInputSource",
             "bindings": bindings
         ]
         guard JSONSerialization.isValidJSONObject(root),
