@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var permissionItem: NSMenuItem?
     private var remapItem: NSMenuItem?
     private var secureInputItem: NSMenuItem?
+    private var windowBindingsMenu: NSMenu?
     private var secureInputTimer: Timer?
     private var secureInputOn = false
 
@@ -61,6 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
         secureInputItem?.title = secureInputTitle
+        refreshWindowBindingsMenu()
     }
 
     private func installSignalHandlers() {
@@ -120,11 +122,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(secureInput)
         secureInputItem = secureInput
 
+        let windowBindings = NSMenuItem(title: "窗口绑定", action: nil, keyEquivalent: "")
+        let windowBindingsSubmenu = NSMenu(title: "窗口绑定")
+        windowBindings.submenu = windowBindingsSubmenu
+        menu.addItem(windowBindings)
+        windowBindingsMenu = windowBindingsSubmenu
+
         menu.addItem(.separator())
         menu.addItem(menuItem("退出", action: #selector(quit)))
 
         item.menu = menu
         statusItem = item
+    }
+
+    private func refreshWindowBindingsMenu() {
+        guard let submenu = windowBindingsMenu else { return }
+        submenu.removeAllItems()
+        let lines = WindowActions.statusLines()
+        if lines.isEmpty {
+            let item = NSMenuItem(
+                title: "（未绑定，Caps+Option+数字 绑定当前窗口）",
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.isEnabled = false
+            submenu.addItem(item)
+        } else {
+            for line in lines {
+                let item = NSMenuItem(title: line.text, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                submenu.addItem(item)
+            }
+        }
+        submenu.addItem(.separator())
+        submenu.addItem(menuItem("清除全部绑定", action: #selector(clearWindowBindings)))
     }
 
     private func startSecureInputMonitor() {
@@ -242,6 +273,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.error("keyremap failed")
         }
         remapItem?.title = remapTitle
+    }
+
+    @objc private func clearWindowBindings() {
+        WindowActions.clearAll()
+        refreshWindowBindingsMenu()
     }
 
     @objc private func quit() {
