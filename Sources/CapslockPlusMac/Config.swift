@@ -275,7 +275,7 @@ final class Config {
         return Keymap(
             tap: .toggleCapsLock,
             chordMaxMs: 300,
-            longPressMs: 500,
+            longPressMs: 1000,
             longPress: "switchInputSource",
             bindings: bindings
         )
@@ -319,7 +319,7 @@ final class Config {
         }
         let maxMs = (root["chordMaxMs"] as? NSNumber)?.intValue ?? 300
         let chordMaxMs = min(max(maxMs, 50), 2000)
-        let rawLongPressMs = (root["longPressMs"] as? NSNumber)?.intValue ?? 500
+        let rawLongPressMs = (root["longPressMs"] as? NSNumber)?.intValue ?? 1000
         let longPressMs = min(max(rawLongPressMs, 300), 3000)
         let longPress = (root["longPress"] as? String) ?? "switchInputSource"
 
@@ -369,7 +369,7 @@ final class Config {
         let root: [String: Any] = [
             "tap": "toggleCapsLock",
             "chordMaxMs": 300,
-            "longPressMs": 500,
+            "longPressMs": 1000,
             "longPress": "switchInputSource",
             "bindings": bindings
         ]
