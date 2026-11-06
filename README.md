@@ -19,6 +19,9 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**�
 长按 Caps 0.6 秒 = 切换输入法（按住满 0.6s 当次即触发，只切一次；之后仍可按着继续用组合键）
 ```
 
+全部可用动作（含参数化 `moveUp(20)`、`send(cmd+shift+t)`、`wrapSelection(paren)` 等）见
+[`docs/ACTIONS.md`](docs/ACTIONS.md)。
+
 `alt` = Mac 的 **Option ⌥**。完整键位在 `~/.config/capslock-plus-mac/keymap.json`，
 改完按 **caps+F5** 生效，不需要重新编译。
 
