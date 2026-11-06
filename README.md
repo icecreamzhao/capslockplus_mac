@@ -14,7 +14,7 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**�
 行      p 行首   ; 行尾
 删除    w 删前一字符   r 删后一字符   [ 删到行首   / 删到行尾
         backspace 删整行     enter 下方插入空行     space 回车
-窗口    alt+1..0 绑定当前窗口      1..0 激活已绑定的窗口
+窗口    alt+1..0 绑定当前窗口      1..0 激活已绑定的窗口（绑定会落盘，重启后仍有效）
 单按 Caps = 切换大小写
 长按 Caps 0.6 秒 = 切换输入法（按住满 0.6s 当次即触发，只切一次；之后仍可按着继续用组合键）
 ```
@@ -86,9 +86,20 @@ app 正常退出、收到 SIGTERM/SIGINT 时会自己撤掉映射；睡眠唤醒
 ## 已知限制
 
 - `kill -9` 无法拦截，映射会残留，需手动 `keyremap.sh off`
-- 窗口跳转对少数窗口会记 `ax raiseWindow failed`（窗口标题在绑定后被改变，如 Terminal），但 app 本身会切过去
+- 窗口跳转优先按标题把具体窗口 raise 到前；标题变了（Terminal 换命令、浏览器换页）就只切到该 app，日志记 `title-miss`。
+  macOS 没有跨进程稳定的窗口标识，绑定只能存到「应用级 + 标题提示」这一层
+- 绑定的 app 没在运行时按编号会自动启动它（`NSWorkspace`），启动到窗口可用之间可能有 1–2 秒延迟
 - 多剪贴板未实现：带修饰键的 chord 里合成 `Cmd+C` 时目标 app 收到的不是复制（无修饰的方向键动作不受影响），见 `docs/SPEC.md` 的说明
 - **Secure Input 期间热键完全失效**（密码框、`sudo` 提示）：系统不把按键投递给 event tap。app 会做两件事——菜单栏图标变锁并显示是哪个 App 开启的，以及把前缀键状态复位；解除后自动恢复。实测日志：整个 sudo 密码提示期间 0 条按键事件。
+
+## 数据文件
+
+```
+~/.config/capslock-plus-mac/keymap.json    键位表（改完 caps+F5 生效）
+~/.config/capslock-plus-mac/windows.json   窗口绑定（tmp + rename 原子写，坏了只警告不影响启动）
+```
+
+`windows.json` 每条形如 `{"bundleID","appName","titleHint","boundAt"}`；菜单「窗口绑定」可看状态并一键清空。
 
 ## 日志
 
