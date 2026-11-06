@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         AX.requestPermission()
         setupStatusItem()
         startSecureInputMonitor()
+        WindowActions.preload()
 
         let engine = EventTapEngine(caps: caps)
         self.engine = engine
