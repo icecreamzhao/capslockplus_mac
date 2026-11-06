@@ -200,6 +200,8 @@ enum ActionRunner {
             Log.warn("action toggleCapsLock is tap-only")
         case .reloadConfig:
             Config.shared.reload()
+        case .switchInputSource:
+            InputSource.switchNext()
         default:
             Log.warn("action unimplemented \(action.name)")
         }
