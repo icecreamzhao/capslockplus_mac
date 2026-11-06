@@ -16,6 +16,10 @@ enum WindowActions {
         }
     }
 
+    static func preload() {
+        _ = bindings
+    }
+
     static func bind(_ index: Int) {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else {
