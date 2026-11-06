@@ -32,6 +32,11 @@ enum Action: Equatable {
     case deleteWordBackward
     case deleteToLineStart
     case deleteToLineEnd
+    case deleteWordForward
+    case deleteToPageStart
+    case deleteToPageEnd
+    case deleteAll
+    case hardDeleteLine
     case deleteLine
     case insertLineBelow
     case pressReturn
@@ -48,6 +53,11 @@ enum Action: Equatable {
 
     case windowBind(Int)
     case windowActivate(Int)
+    case minimizeWindow
+    case launchApp(String)
+    case sendKeys(String)
+    case typeText(String)
+    indirect case repeated(Action, Int)
     case reloadConfig
     case switchInputSource
 
@@ -81,6 +91,11 @@ enum Action: Equatable {
         case .deleteWordBackward: return "deleteWordBackward"
         case .deleteToLineStart: return "deleteToLineStart"
         case .deleteToLineEnd: return "deleteToLineEnd"
+        case .deleteWordForward: return "deleteWordForward"
+        case .deleteToPageStart: return "deleteToPageStart"
+        case .deleteToPageEnd: return "deleteToPageEnd"
+        case .deleteAll: return "deleteAll"
+        case .hardDeleteLine: return "hardDeleteLine"
         case .deleteLine: return "deleteLine"
         case .insertLineBelow: return "insertLineBelow"
         case .pressReturn: return "pressReturn"
@@ -95,6 +110,11 @@ enum Action: Equatable {
         case .extraPaste: return "extraClipboard.paste"
         case .windowBind(let index): return "window.bind(\(index))"
         case .windowActivate(let index): return "window.activate(\(index))"
+        case .minimizeWindow: return "minimizeWindow"
+        case .launchApp(let bundleID): return "launchapp(\(bundleID))"
+        case .sendKeys(let spec): return "send(\(spec))"
+        case .typeText(let text): return "type(\(text))"
+        case .repeated(let base, let count): return "\(base.name)(\(count))"
         case .reloadConfig: return "reloadConfig"
         case .switchInputSource: return "switchInputSource"
         }
@@ -129,6 +149,11 @@ enum Action: Equatable {
         "deletewordbackward": .deleteWordBackward,
         "deletetolinestart": .deleteToLineStart,
         "deletetolineend": .deleteToLineEnd,
+        "deletewordforward": .deleteWordForward,
+        "deletetopagestart": .deleteToPageStart,
+        "deletetopageend": .deleteToPageEnd,
+        "deleteall": .deleteAll,
+        "harddeleteline": .hardDeleteLine,
         "deleteline": .deleteLine,
         "insertlinebelow": .insertLineBelow,
         "pressreturn": .pressReturn,
@@ -140,8 +165,26 @@ enum Action: Equatable {
         "extraclipboard.cut": .extraCut,
         "extraclipboard.copy": .extraCopy,
         "extraclipboard.paste": .extraPaste,
+        "minimizewindow": .minimizeWindow,
         "reloadconfig": .reloadConfig,
         "switchinputsource": .switchInputSource
+    ]
+
+    private static let repeatable: [String: Action] = [
+        "moveleft": .moveLeft,
+        "moveright": .moveRight,
+        "moveup": .moveUp,
+        "movedown": .moveDown,
+        "movewordleft": .moveWordLeft,
+        "movewordright": .moveWordRight,
+        "selectleft": .selectLeft,
+        "selectright": .selectRight,
+        "selectup": .selectUp,
+        "selectdown": .selectDown,
+        "selectwordleft": .selectWordLeft,
+        "selectwordright": .selectWordRight,
+        "deletebackward": .deleteBackward,
+        "deleteforward": .deleteForward
     ]
 
     static func parse(_ raw: String) -> Action? {
@@ -158,6 +201,28 @@ enum Action: Equatable {
         }
         if let index = integerArgument(of: lower, prefix: "window.activate(") {
             return .windowActivate(index)
+        }
+        if lower.hasPrefix("type("), trimmed.hasSuffix(")") {
+            let text = String(trimmed.dropFirst("type(".count).dropLast())
+            return .typeText(text)
+        }
+        if let spec = argument(of: lower, prefix: "send("), !spec.isEmpty {
+            return .sendKeys(spec)
+        }
+        if lower.hasPrefix("launchapp("), trimmed.hasSuffix(")") {
+            let bundleID = String(trimmed.dropFirst("launchapp(".count).dropLast())
+                .trimmingCharacters(in: .whitespaces)
+            if !bundleID.isEmpty {
+                return .launchApp(bundleID)
+            }
+        }
+        if let open = lower.firstIndex(of: "("), lower.hasSuffix(")") {
+            let base = String(lower[..<open])
+            let inner = String(lower[lower.index(after: open)..<lower.index(before: lower.endIndex)])
+            if let action = repeatable[base],
+               let count = Int(inner.trimmingCharacters(in: .whitespaces)) {
+                return .repeated(action, min(max(count, 1), 100))
+            }
         }
         return nil
     }
@@ -183,7 +248,7 @@ struct Binding {
 }
 
 struct Keymap {
-    var tap: TapAction
+    var tapAction: Action
     var chordMaxMs: Int
     var longPressMs: Int
     var longPress: String
@@ -197,6 +262,8 @@ final class Config {
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
+        validateSelftestSamples()
+
         var pairs: [(String, String)] = [
             ("caps+s", "moveLeft"),
             ("caps+f", "moveRight"),
@@ -252,6 +319,35 @@ final class Config {
         return pairs
     }()
 
+    static let selftestSamples = [
+        "moveup(20)",
+        "selectdown(5)",
+        "wrapselection(paren)",
+        "launchapp(com.apple.Safari)",
+        "send(cmd+shift+t)",
+        "type(Hello World)"
+    ]
+
+    private static func validateSelftestSamples() {
+        guard CommandLine.arguments.contains("--selftest") else { return }
+        var failures: [String] = []
+        for sample in selftestSamples {
+            guard let action = Action.parse(sample) else {
+                failures.append("cannot parse \(sample)")
+                continue
+            }
+            if sample == "type(Hello World)", action != .typeText("Hello World") {
+                failures.append("type() case/space changed: \(action.name)")
+            }
+        }
+        guard failures.isEmpty else {
+            for failure in failures {
+                FileHandle.standardError.write(Data("selftest FAILED: \(failure)\n".utf8))
+            }
+            exit(1)
+        }
+    }
+
     private init() {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".config/capslock-plus-mac", isDirectory: true)
@@ -273,7 +369,7 @@ final class Config {
             )
         }
         return Keymap(
-            tap: .toggleCapsLock,
+            tapAction: .toggleCapsLock,
             chordMaxMs: 300,
             longPressMs: 600,
             longPress: "switchInputSource",
@@ -313,9 +409,12 @@ final class Config {
         }
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
-        let tap = TapAction(rawValue: tapRaw) ?? .toggleCapsLock
-        if TapAction(rawValue: tapRaw) == nil {
-            Log.warn("config unknown tap=\(tapRaw)")
+        let tapAction: Action
+        if let parsed = Action.parse(tapRaw) {
+            tapAction = parsed
+        } else {
+            tapAction = .toggleCapsLock
+            Log.warn("tap parse failed tap=\(tapRaw)")
         }
         let maxMs = (root["chordMaxMs"] as? NSNumber)?.intValue ?? 300
         let chordMaxMs = min(max(maxMs, 50), 2000)
@@ -351,7 +450,7 @@ final class Config {
         }
 
         keymap = Keymap(
-            tap: tap,
+            tapAction: tapAction,
             chordMaxMs: chordMaxMs,
             longPressMs: longPressMs,
             longPress: longPress,

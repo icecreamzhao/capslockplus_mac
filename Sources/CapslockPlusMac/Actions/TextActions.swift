@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import CoreGraphics
 
 enum TextActions {
@@ -64,6 +65,22 @@ enum TextActions {
         case .deleteToLineEnd:
             KeyPost.key(right, flags: [.maskCommand, .maskShift])
             KeyPost.key(backspace)
+        case .deleteWordForward:
+            KeyPost.key(forwardDelete, flags: .maskAlternate)
+        case .deleteToPageStart:
+            KeyPost.key(up, flags: [.maskCommand, .maskShift])
+            KeyPost.key(backspace)
+        case .deleteToPageEnd:
+            KeyPost.key(down, flags: [.maskCommand, .maskShift])
+            KeyPost.key(backspace)
+        case .deleteAll:
+            KeyPost.key(0, flags: .maskCommand)
+            KeyPost.key(backspace)
+        case .hardDeleteLine:
+            KeyPost.key(left, flags: .maskCommand)
+            KeyPost.key(right, flags: [.maskCommand, .maskShift])
+            KeyPost.key(down, flags: .maskShift)
+            KeyPost.key(backspace)
         case .deleteLine:
             KeyPost.key(left, flags: .maskCommand)
             KeyPost.key(right, flags: [.maskCommand, .maskShift])
@@ -78,6 +95,23 @@ enum TextActions {
             KeyPost.key(left, flags: [.maskAlternate, .maskShift])
         case .wrapSelection(let kind):
             wrapSelection(kind)
+        case .sendKeys(let spec):
+            if KeyPost.keys(spec) {
+                Log.info("action=send spec=\(spec) ok=1")
+            }
+        case .typeText(let text):
+            KeyPost.text(text)
+            Log.info("action=type n=\(text.utf16.count)")
+        case .minimizeWindow:
+            if !AX.minimizeFocusedWindow() {
+                Log.warn("minimize failed")
+            }
+        case .launchApp(let bundleID):
+            launchApp(bundleID)
+        case .repeated(let base, let count):
+            for _ in 0..<max(0, min(count, 100)) {
+                _ = run(base)
+            }
         default:
             return false
         }
@@ -87,6 +121,25 @@ enum TextActions {
     private static func repeatKey(_ code: CGKeyCode, count: Int, flags: CGEventFlags = []) {
         for _ in 0..<count {
             KeyPost.key(code, flags: flags)
+        }
+    }
+
+    private static func launchApp(_ bundleID: String) {
+        Log.info("action=launchApp bundle=\(bundleID)")
+        if let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+            _ = running.activate(options: [.activateAllWindows])
+            return
+        }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else {
+            Log.warn("launchApp failed bundle=\(bundleID) reason=no-url")
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { app, error in
+            if let error {
+                Log.warn("launchApp failed bundle=\(bundleID) reason=\(error.localizedDescription)")
+                return
+            }
+            _ = app?.activate(options: [.activateAllWindows])
         }
     }
 

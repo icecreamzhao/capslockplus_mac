@@ -132,16 +132,15 @@ final class CapsState {
     }
 
     private func performTap() {
-        switch Config.shared.keymap.tap {
-        case .toggleCapsLock:
+        let action = Config.shared.keymap.tapAction
+        Log.info("prefix tap -> \(action.name)")
+        if action == .toggleCapsLock {
             let on = !HIDCapsLock.shared.isLocked
             HIDCapsLock.shared.setLocked(on)
             Log.info("prefixTap -> toggleCaps state=\(on ? "on" : "off")")
-        case .escape:
-            KeyPost.key(53)
-        case .none:
-            break
+            return
         }
+        ActionRunner.run(action)
     }
 
     private func performLongPress(elapsedMs: Int) {
