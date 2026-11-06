@@ -7,7 +7,11 @@ enum InputSource {
             return []
         }
         return list.filter { source in
-            boolProperty(source, kTISPropertyInputSourceIsEnabled as CFString) &&
+            let category = stringProperty(source, kTISPropertyInputSourceCategory as CFString)
+            let type = stringProperty(source, kTISPropertyInputSourceType as CFString)
+            return category == (kTISCategoryKeyboardInputSource as String) &&
+                (type == (kTISTypeKeyboardLayout as String) || type == (kTISTypeKeyboardInputMode as String)) &&
+                boolProperty(source, kTISPropertyInputSourceIsEnabled as CFString) &&
                 boolProperty(source, kTISPropertyInputSourceIsSelectCapable as CFString)
         }
     }
@@ -51,7 +55,13 @@ enum InputSource {
             Log.warn("inputsource select failed status=\(status)")
             return nil
         }
-        return name(of: target)
+
+        usleep(300_000)
+        guard let newID = currentID(), newID == id(of: target) else {
+            Log.warn("inputsource switch rejected")
+            return nil
+        }
+        return currentName()
     }
 
     private static func boolProperty(_ source: TISInputSource, _ key: CFString) -> Bool {
@@ -69,10 +79,6 @@ enum InputSource {
     }
 
     private static func name(of source: TISInputSource) -> String? {
-        guard let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceNames as CFString) else {
-            return nil
-        }
-        let names = Unmanaged<CFDictionary>.fromOpaque(raw).takeUnretainedValue() as NSDictionary
-        return names[kTISPropertyLocalizedName] as? String
+        stringProperty(source, kTISPropertyLocalizedName as CFString)
     }
 }
