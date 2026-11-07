@@ -168,7 +168,7 @@ final class CFNotificationObserver {
         CFNotificationCenterRemoveObserver(
             CFNotificationCenterGetDistributedCenter(),
             Unmanaged.passUnretained(self).toOpaque(),
-            name,
+            CFNotificationName(name),
             nil
         )
         registered = false
