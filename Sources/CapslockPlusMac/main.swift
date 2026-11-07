@@ -37,6 +37,61 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+
+func runAXProbe(bundleID: String) -> Int32 {
+    var lines: [String] = []
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+        return 2
+    }
+    let ax = AXUIElementCreateApplication(app.processIdentifier)
+    let enhanced = AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+    lines.append("enhancedUI status=\(enhanced.rawValue)")
+
+    func elementAttr(_ el: AXUIElement, _ name: CFString) -> AXUIElement? {
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, name, &v) == .success, let raw = v,
+              CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
+        return (raw as! AXUIElement)
+    }
+
+    guard let focused = elementAttr(ax, kAXFocusedUIElementAttribute as CFString) else {
+        lines.append("focused=nil")
+        FileManager.default.createFile(atPath: "/tmp/axprobe.txt", contents: lines.joined(separator: "\n").data(using: .utf8))
+        return 1
+    }
+
+    var names: CFArray?
+    AXUIElementCopyAttributeNames(focused, &names)
+    lines.append("attributes=\((names as? [String]) ?? [])")
+
+    func raw(_ name: CFString) -> String {
+        var v: CFTypeRef?
+        let e = AXUIElementCopyAttributeValue(focused, name, &v)
+        if e != .success { return "err=\(e.rawValue)" }
+        guard let value = v else { return "nil" }
+        return "\(value)"
+    }
+    lines.append("AXSelectedText=" + raw(kAXSelectedTextAttribute as CFString))
+    lines.append("AXSelectedTextRange=" + raw(kAXSelectedTextRangeAttribute as CFString))
+    lines.append("AXSelectedTextMarkerRange=" + raw("AXSelectedTextMarkerRange" as CFString))
+    lines.append("AXValue-len=" + String(describing: (raw(kAXValueAttribute as CFString)).count))
+
+    // WebKit: 用文本标记范围取选中文字
+    var markerRaw: CFTypeRef?
+    if AXUIElementCopyAttributeValue(focused, "AXSelectedTextMarkerRange" as CFString, &markerRaw) == .success,
+       let marker = markerRaw {
+        var text: CFTypeRef?
+        let st = AXUIElementCopyParameterizedAttributeValue(
+            focused, "AXStringForTextMarkerRange" as CFString, marker, &text)
+        lines.append("stringForTextMarkerRange status=\(st.rawValue) value=\(String(describing: text))")
+    } else {
+        lines.append("stringForTextMarkerRange: no marker range")
+    }
+
+    FileManager.default.createFile(atPath: "/tmp/axprobe.txt", contents: lines.joined(separator: "\n").data(using: .utf8))
+    return 0
+}
+
 func runSelfTest() -> Int32 {
     var failures: [String] = []
     var seen = Set<KeyCombo>()
@@ -169,6 +224,11 @@ func runTilingSelfTest() -> Int32 {
     return 1
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--ax-probe"),
+   index + 1 < CommandLine.arguments.count {
+    exit(runAXProbe(bundleID: CommandLine.arguments[index + 1]))
+}
+
 if CommandLine.arguments.contains("--panel-selftest") {
     let delegate = PanelSelfTestDelegate()
     NSApplication.shared.delegate = delegate
@@ -261,7 +321,8 @@ app.setActivationPolicy(.accessory)
 
 // 单实例保护：两个进程各自建 event tap、各自切输入法，会表现为"长按切了输入法但不生效"
 // （每次按键被处理两次，输入源被切换两轮，正好回到原点）
-if let bundleID = Bundle.main.bundleIdentifier {
+let isProbeRun = CommandLine.arguments.contains("--ax-probe")
+if let bundleID = Bundle.main.bundleIdentifier, !isProbeRun {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
     if !others.isEmpty {
