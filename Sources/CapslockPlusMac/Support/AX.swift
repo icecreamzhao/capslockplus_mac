@@ -81,6 +81,7 @@ enum AX {
         AXUIElementGetPid(app, &pid)
         guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
 
+        Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0)")
         var visited = 0
         var found: String?
         func scan(_ element: AXUIElement, depth: Int) {

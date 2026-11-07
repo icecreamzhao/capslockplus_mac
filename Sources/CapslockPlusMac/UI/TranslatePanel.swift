@@ -142,7 +142,7 @@ final class TranslatePanel: NSPanel {
             clickMonitor = nil
         }
         guard isShown else { return }
-        let hadFocus = isKeyWindow
+        let hadFocus = isKeyWindow || NSApp.isActive
         // 划选状态留着没意义，下次开是新的词
         bodyTextView.setSelectedRange(NSRange(location: 0, length: 0))
         orderOut(nil)
