@@ -78,13 +78,13 @@ enum WindowActions {
         let center = CGPoint(x: axFrame.midX, y: axFrame.midY)
 
         // 先找包含窗口中心的屏幕，找不到就取重叠面积最大的
-        for screen in screens where axFrame(of: screen).contains(center) {
+        for screen in screens where axBounds(of: screen).contains(center) {
             return screen
         }
         var best: NSScreen?
         var bestArea: CGFloat = 0
         for screen in screens {
-            let intersection = axFrame(of: screen).intersection(axFrame)
+            let intersection = axBounds(of: screen).intersection(axFrame)
             let area = intersection.isNull ? 0 : intersection.width * intersection.height
             if area > bestArea {
                 bestArea = area
@@ -95,7 +95,7 @@ enum WindowActions {
         return best ?? screens[0]
     }
 
-    private static func axFrame(of screen: NSScreen) -> CGRect {
+    private static func axBounds(of screen: NSScreen) -> CGRect {
         flipped(screen.frame)
     }
 
