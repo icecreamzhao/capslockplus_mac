@@ -79,7 +79,8 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 | `transform(unique)` | 按行去重（保留首次出现顺序） |
 | `transform(jsonpretty)` / `transform(jsonmin)` | JSON 美化 / 压缩（非法 JSON 会失败并记日志） |
 | `transform(urlencode)` / `transform(urldecode)` | URL 编解码 |
-| `transform(ascii2cjk)` / `transform(cjk2ascii)` | 中英标点互换 `,.;:!?()[]` ↔ `，。；：！？（）【】` |
+| `transform(ascii2cjk)` / `transform(cjk2ascii)` | 强制转成中文 / 英文标点 |
+| `transform(punctoggle)` | 自动判断方向：选中里有中文标点就转英文，否则转中文（引号也换） |
 
 切词规则：`userProfileID`、`user_profile_id`、`user-profile id` 都能正确切成 `user/profile/ID` 三段。
 
