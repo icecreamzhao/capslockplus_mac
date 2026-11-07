@@ -63,17 +63,23 @@ enum KeyPost {
 
     private static func postUnicode(_ units: [UniChar]) {
         guard !units.isEmpty,
-              let source = CGEventSource(stateID: .combinedSessionState),
-              let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) else {
+              let source = CGEventSource(stateID: .combinedSessionState) else {
             return
         }
-        event.flags = []
-        event.setIntegerValueField(.eventSourceUserData, value: magic)
-        units.withUnsafeBufferPointer { buffer in
-            guard let base = buffer.baseAddress else { return }
-            event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: base)
+        // keyDown 和 keyUp 都要发：只发 keyDown 时不少 App（含输入法）会把这次输入丢掉
+        for down in [true, false] {
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else {
+                continue
+            }
+            event.flags = []
+            event.setIntegerValueField(.eventSourceUserData, value: magic)
+            units.withUnsafeBufferPointer { buffer in
+                guard let base = buffer.baseAddress else { return }
+                event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: base)
+            }
+            event.post(tap: .cgSessionEventTap)
+            if down { usleep(3000) }
         }
-        event.post(tap: .cgSessionEventTap)
     }
 
     private static func groups(of spec: String) -> [String] {

@@ -146,6 +146,7 @@ final class EventTapEngine {
             modifiers: event.flags.rawValue & KeyCodes.chordMask.rawValue
         )
         guard let binding = Config.shared.keymap.bindings[combo] else {
+            Log.info("chord unbound code=\(keyCode) mods=\(combo.modifiers) flags=\(event.flags.rawValue)")
             return true
         }
 

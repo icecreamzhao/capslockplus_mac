@@ -127,10 +127,7 @@ enum TextActions {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = format
         let text = formatter.string(from: Date())
-        if AX.setSelectedText(text) {
-            Log.info("insertdate \(format) -> \(text) via=ax")
-            return
-        }
+        // 优先合成输入：AX 的 setSelectedText 在不少 App 里返回成功但实际不插入
         KeyPost.text(text)
         Log.info("insertdate \(format) -> \(text) via=typing")
     }
