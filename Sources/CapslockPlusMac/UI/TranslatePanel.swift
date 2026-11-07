@@ -117,6 +117,10 @@ final class TranslatePanel: NSPanel {
                audio: audio, keepPosition: updatingInPlace)
     }
 
+    func showHint(_ text: String) {
+        render(title: "caps+t", subtitle: "", body: text)
+    }
+
     func show(error: String) {
         render(title: "没有结果", subtitle: "", body: error)
     }

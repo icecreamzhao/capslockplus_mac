@@ -16,12 +16,26 @@ enum TranslateActions {
             return
         }
 
-        guard let selected = AX.selectedText() else {
-            Log.warn("translate failed reason=no-selection")
+        attemptRead(attempt: 0)
+    }
+
+    /// 读选区：第一次读空就隔 150ms 再试，最多三次。
+    /// 双击选词后立刻按热键时，目标 App 常常还没来得及把选区暴露给 AX。
+    private static func attemptRead(attempt: Int) {
+        if let text = AX.selectedText() {
+            Log.info("translate source=ax attempt=\(attempt)")
+            perform(text)
             return
         }
-        Log.info("translate source=ax")
-        perform(selected)
+        guard attempt < 2 else {
+            Log.warn("translate failed reason=no-selection attempts=\(attempt + 1)")
+            TranslatePanel.shared.showHint("没有选中文字。先用鼠标选中一个单词或短语，再按 caps+t。")
+            return
+        }
+        // 不在 tap 里 sleep，交给主队列稍后重试
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            attemptRead(attempt: attempt + 1)
+        }
     }
 
     /// 查词主流程：本地词库优先，未命中走在线。

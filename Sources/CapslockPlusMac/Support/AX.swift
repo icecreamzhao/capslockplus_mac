@@ -93,7 +93,7 @@ enum AX {
             Log.warn("axSelection no-element app=\(bundle) pid=\(pid)")
             return nil
         }
-        let role = (elementAttribute(element, kAXRoleAttribute as CFString) as? String) ?? "?"
+        let role = stringAttribute(element, kAXRoleAttribute as CFString) ?? "?"
 
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value)
@@ -249,6 +249,15 @@ enum AX {
         var size = CGSize.zero
         guard AXValueGetValue(raw as! AXValue, .cgSize, &size) else { return nil }
         return size
+    }
+
+    private static func stringAttribute(_ element: AXUIElement, _ name: CFString) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
+              let raw = value, CFGetTypeID(raw) == CFStringGetTypeID() else {
+            return nil
+        }
+        return (raw as! String)
     }
 
     private static func elementAttribute(_ element: AXUIElement, _ name: CFString) -> AXUIElement? {
