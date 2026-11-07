@@ -133,6 +133,21 @@ func runTilingSelfTest() -> Int32 {
     return 1
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--dict-test"),
+   index + 1 < CommandLine.arguments.count {
+    let query = CommandLine.arguments[index + 1]
+    let entries = OfflineDictionary.shared.lookup(query)
+    print("candidates=\(OfflineDictionary.candidates(for: query))")
+    print("hits=\(entries.count)")
+    for entry in entries {
+        print("[\(entry.source)] \(entry.headword) /\(entry.phonetic ?? "-")/ audio=\(entry.audioPath ?? "-")")
+        for line in entry.lines.prefix(10) {
+            print("   ", line)
+        }
+    }
+    exit(entries.isEmpty ? 1 : 0)
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--translate-test"),
    index + 1 < CommandLine.arguments.count {
     let query = CommandLine.arguments[index + 1]

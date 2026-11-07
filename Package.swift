@@ -15,7 +15,9 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
                 .linkedFramework("IOKit"),
-                .linkedFramework("CoreGraphics")
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("AVFoundation"),
+                .linkedLibrary("sqlite3")
             ]
         )
     ]

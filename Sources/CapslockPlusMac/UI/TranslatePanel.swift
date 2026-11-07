@@ -1,24 +1,27 @@
 import Foundation
 import AppKit
 
-/// 翻译浮层：无边框、不抢焦点、贴鼠标位置。
-/// 关闭方式：再按一次热键 / 点窗口外 / 12 秒后自动消失。
+/// 查词浮层：无边框、不抢焦点、贴鼠标位置。
+/// 关闭方式：再按一次热键 / 点浮层外 / 12 秒后自动消失。
 final class TranslatePanel: NSPanel {
     static let shared = TranslatePanel()
 
     private let effectView = NSVisualEffectView()
     private let titleLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
     private let bodyLabel = NSTextField(labelWithString: "")
+    private let speakerButton = NSButton()
     private var dismissTimer: Timer?
     private var clickMonitor: Any?
     private var isShown = false
+    private var audioPath: String?
 
-    private let width: CGFloat = 360
+    private let width: CGFloat = 380
     private let padding: CGFloat = 14
 
     private init() {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 100),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 120),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -39,18 +42,33 @@ final class TranslatePanel: NSPanel {
         effectView.layer?.cornerRadius = 12
         effectView.layer?.masksToBounds = true
 
-        titleLabel.font = NSFont.systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
+
+        subtitleLabel.font = NSFont.systemFont(ofSize: 11)
+        subtitleLabel.textColor = .tertiaryLabelColor
+        subtitleLabel.lineBreakMode = .byTruncatingTail
 
         bodyLabel.font = NSFont.systemFont(ofSize: 13)
         bodyLabel.textColor = .secondaryLabelColor
         bodyLabel.maximumNumberOfLines = 0
         bodyLabel.lineBreakMode = .byWordWrapping
-        bodyLabel.isSelectable = false
+        bodyLabel.isSelectable = true
+
+        speakerButton.isBordered = false
+        speakerButton.bezelStyle = .inline
+        speakerButton.imagePosition = .imageOnly
+        speakerButton.image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: "播放读音")
+        speakerButton.contentTintColor = .secondaryLabelColor
+        speakerButton.target = self
+        speakerButton.action = #selector(playAudio)
+        speakerButton.isHidden = true
 
         effectView.addSubview(titleLabel)
+        effectView.addSubview(subtitleLabel)
         effectView.addSubview(bodyLabel)
+        effectView.addSubview(speakerButton)
         contentView = effectView
     }
 
@@ -59,16 +77,32 @@ final class TranslatePanel: NSPanel {
 
     var isShowing: Bool { isShown }
 
+    // MARK: - 对外接口
+
     func showPending(query: String) {
-        render(query: query, body: "查询中…")
+        render(title: query, subtitle: "查询中…", body: "")
     }
 
     func show(result: Translation) {
-        render(query: result.query, body: result.displayText)
+        render(title: result.query, subtitle: "在线 · 有道", body: result.displayText)
+    }
+
+    func show(entry: DictEntry, audio: String?) {
+        var subtitle = entry.sourceLabel
+        if let phonetic = entry.phonetic, !phonetic.isEmpty {
+            subtitle = "/\(phonetic)/  ·  " + subtitle
+        }
+        let lines = entry.lines.map { line -> String in
+            if line.hasPrefix("例\t") {
+                return "例  " + String(line.dropFirst(2))
+            }
+            return line.replacingOccurrences(of: "\t", with: "  ")
+        }
+        render(title: entry.headword, subtitle: subtitle, body: lines.joined(separator: "\n"), audio: audio)
     }
 
     func show(error: String) {
-        render(query: "翻译失败", body: error)
+        render(title: "没有结果", subtitle: "", body: error)
     }
 
     func dismiss() {
@@ -81,25 +115,42 @@ final class TranslatePanel: NSPanel {
         guard isShown else { return }
         orderOut(nil)
         isShown = false
-        Log.info("translate panel hidden")
+        Log.info("panel hidden")
     }
 
     // MARK: - 布局
 
-    private func render(query: String, body: String) {
-        titleLabel.stringValue = query
+    private func render(title: String, subtitle: String, body: String, audio: String? = nil) {
+        audioPath = audio
+        titleLabel.stringValue = title
+        subtitleLabel.stringValue = subtitle
         bodyLabel.stringValue = body
+        speakerButton.isHidden = (audio == nil)
 
         let textWidth = width - padding * 2
-        let bodyHeight = measure(body, font: bodyLabel.font!, width: textWidth)
-        let titleHeight: CGFloat = 20
+        let bodyHeight = body.isEmpty ? 0 : measure(body, font: bodyLabel.font!, width: textWidth)
+        let titleHeight: CGFloat = 21
+        let subtitleHeight: CGFloat = subtitle.isEmpty ? 0 : 14
+        let spacing: CGFloat = (body.isEmpty || subtitleHeight == 0) ? 0 : 6
 
-        let height = max(60, padding * 2 + titleHeight + 6 + bodyHeight)
-        let frame = NSRect(x: 0, y: 0, width: width, height: height)
-        setFrame(frame, display: true)
+        var height = padding * 2 + titleHeight + subtitleHeight + spacing + bodyHeight
+        height = max(height, 58)
+        setFrame(NSRect(x: 0, y: 0, width: width, height: height), display: true)
 
-        titleLabel.frame = NSRect(x: padding, y: height - padding - titleHeight, width: textWidth, height: titleHeight)
-        bodyLabel.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
+        var top = height - padding
+        let titleWidth = textWidth - (audio == nil ? 0 : 24)
+        titleLabel.frame = NSRect(x: padding, y: top - titleHeight, width: titleWidth, height: titleHeight)
+        if audio != nil {
+            speakerButton.frame = NSRect(x: width - padding - 18, y: top - titleHeight + 2, width: 18, height: 18)
+        }
+        top -= titleHeight
+        if subtitleHeight > 0 {
+            subtitleLabel.frame = NSRect(x: padding, y: top - subtitleHeight, width: textWidth, height: subtitleHeight)
+            top -= subtitleHeight + spacing
+        }
+        if bodyHeight > 0 {
+            bodyLabel.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
+        }
 
         positionNearCursor()
         if !isShown {
@@ -112,7 +163,7 @@ final class TranslatePanel: NSPanel {
         dismissTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
             self?.dismiss()
         }
-        Log.info("translate panel shown query=\(query) h=\(Int(height))")
+        Log.info("panel shown title=\(title) h=\(Int(height)) audio=\(audio == nil ? 0 : 1)")
     }
 
     private func measure(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
@@ -146,7 +197,15 @@ final class TranslatePanel: NSPanel {
         clickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] _ in
-            self?.dismiss()
+            guard let self = self else { return }
+            // 点在浮层自己身上时别关（点喇叭会先把自己关掉）
+            if self.frame.contains(NSEvent.mouseLocation) { return }
+            self.dismiss()
         }
+    }
+
+    @objc private func playAudio() {
+        guard let path = audioPath else { return }
+        AudioPlayer.shared.play(relativePath: path)
     }
 }
