@@ -147,10 +147,13 @@ final class CapsState {
         guard Config.shared.keymap.longPress == "switchInputSource" else {
             return
         }
-        if let name = InputSource.switchNext() {
-            Log.info("longpress \(elapsedMs)ms -> switchInputSource -> \(name)")
-        } else {
-            Log.warn("longpress \(elapsedMs)ms -> switchInputSource failed")
+        Log.info("longpress \(elapsedMs)ms -> switchInputSource begin (\(InputSource.currentSnapshot()))")
+        InputSource.switchNext { name in
+            if let name = name {
+                Log.info("longpress \(elapsedMs)ms -> switchInputSource -> \(name)")
+            } else {
+                Log.warn("longpress \(elapsedMs)ms -> switchInputSource failed")
+            }
         }
     }
 }

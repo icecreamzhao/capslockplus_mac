@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var remapItem: NSMenuItem?
     private var loginItemItem: NSMenuItem?
     private var secureInputItem: NSMenuItem?
+    private var inputSourceItem: NSMenuItem?
+    private var capsLockItem: NSMenuItem?
     private var windowBindingsMenu: NSMenu?
     private var secureInputTimer: Timer?
     private var secureInputOn = false
@@ -27,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupStatusItem()
         startSecureInputMonitor()
         WindowActions.preload()
+        InputSource.startObserving()
 
         let engine = EventTapEngine(caps: caps)
         self.engine = engine
@@ -55,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         secureInputTimer?.invalidate()
         secureInputTimer = nil
         SystemEvents.shared.stop()
+        InputSource.stopObserving()
         KeyRemap.remove()
         engine?.stop()
         Log.info("app=stop")
@@ -65,6 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         remapItem?.title = remapTitle
         refreshLoginItemMenuItem()
         secureInputItem?.title = secureInputTitle
+        inputSourceItem?.title = "输入法：\(InputSource.currentName() ?? "未知")"
+        capsLockItem?.title = "大写锁定：\(HIDCapsLock.shared.isLocked ? "开" : "关")"
         refreshWindowBindingsMenu()
     }
 
@@ -129,6 +135,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         secureInput.isEnabled = false
         menu.addItem(secureInput)
         secureInputItem = secureInput
+
+        let inputSourceItem = NSMenuItem(title: "输入法：未知", action: nil, keyEquivalent: "")
+        inputSourceItem.isEnabled = false
+        menu.addItem(inputSourceItem)
+        self.inputSourceItem = inputSourceItem
+
+        let capsLockItem = NSMenuItem(title: "大写锁定：未知", action: nil, keyEquivalent: "")
+        capsLockItem.isEnabled = false
+        menu.addItem(capsLockItem)
+        self.capsLockItem = capsLockItem
 
         let windowBindings = NSMenuItem(title: "窗口绑定", action: nil, keyEquivalent: "")
         let windowBindingsSubmenu = NSMenu(title: "窗口绑定")

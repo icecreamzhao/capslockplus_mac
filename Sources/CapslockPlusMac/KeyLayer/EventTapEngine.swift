@@ -201,7 +201,13 @@ enum ActionRunner {
         case .reloadConfig:
             Config.shared.reload()
         case .switchInputSource:
-            InputSource.switchNext()
+            InputSource.switchNext { name in
+                if let name = name {
+                    Log.info("chord switchInputSource -> \(name)")
+                } else {
+                    Log.warn("chord switchInputSource failed")
+                }
+            }
         default:
             Log.warn("action unimplemented \(action.name)")
         }
