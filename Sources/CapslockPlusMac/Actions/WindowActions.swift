@@ -35,40 +35,63 @@ enum WindowActions {
         }
         let visible = axVisibleFrame(of: screen)
 
-        var target: CGRect
-        switch kind.lowercased() {
-        case "left":
-            target = CGRect(x: visible.minX, y: visible.minY,
-                            width: (visible.width / 2).rounded(), height: visible.height)
-        case "right":
-            let half = (visible.width / 2).rounded()
-            target = CGRect(x: visible.minX + half, y: visible.minY,
-                            width: visible.width - half, height: visible.height)
-        case "top":
-            target = CGRect(x: visible.minX, y: visible.minY,
-                            width: visible.width, height: (visible.height / 2).rounded())
-        case "bottom":
-            let half = (visible.height / 2).rounded()
-            target = CGRect(x: visible.minX, y: visible.minY + half,
-                            width: visible.width, height: visible.height - half)
-        case "maximize":
-            target = visible
-        case "center":
-            let width = min(windowFrame.width, visible.width)
-            let height = min(windowFrame.height, visible.height)
-            target = CGRect(
-                x: visible.minX + ((visible.width - width) / 2).rounded(),
-                y: visible.minY + ((visible.height - height) / 2).rounded(),
-                width: width,
-                height: height
-            )
-        default:
+        guard let target = targetRect(kind: kind, windowFrame: windowFrame, visible: visible) else {
             Log.warn("tile unknown kind=\(kind)")
             return
         }
 
         let ok = AX.setFocusedWindowFrame(target)
         Log.info("tile \(kind.lowercased()) rect=\(Int(target.minX)),\(Int(target.minY)) \(Int(target.width))x\(Int(target.height)) ok=\(ok ? 1 : 0)")
+    }
+
+    /// 纯计算：给定窗口 frame 和屏幕可视区，算出目标 frame。便于离线校验坐标换算。
+    static func targetRect(kind: String, windowFrame: CGRect, visible: CGRect) -> CGRect? {
+        switch kind.lowercased() {
+        case "left":
+            return CGRect(x: visible.minX, y: visible.minY,
+                          width: (visible.width / 2).rounded(), height: visible.height)
+        case "right":
+            let half = (visible.width / 2).rounded()
+            return CGRect(x: visible.minX + half, y: visible.minY,
+                          width: visible.width - half, height: visible.height)
+        case "top":
+            return CGRect(x: visible.minX, y: visible.minY,
+                          width: visible.width, height: (visible.height / 2).rounded())
+        case "bottom":
+            let half = (visible.height / 2).rounded()
+            return CGRect(x: visible.minX, y: visible.minY + half,
+                          width: visible.width, height: visible.height - half)
+        case "maximize":
+            return visible
+        case "center":
+            let width = min(windowFrame.width, visible.width)
+            let height = min(windowFrame.height, visible.height)
+            return CGRect(
+                x: visible.minX + ((visible.width - width) / 2).rounded(),
+                y: visible.minY + ((visible.height - height) / 2).rounded(),
+                width: width,
+                height: height
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// 只读：给 CLI 探针用，打印当前窗口与各平铺目标，不改任何窗口。
+    static func describeTiling() -> [String] {
+        guard let windowFrame = AX.focusedWindowFrame() else { return ["window=nil"] }
+        guard let screen = screenContaining(windowFrame) else { return ["window=\(windowFrame) screen=nil"] }
+        let visible = axVisibleFrame(of: screen)
+        var lines = [
+            "window=\(Int(windowFrame.minX)),\(Int(windowFrame.minY)) \(Int(windowFrame.width))x\(Int(windowFrame.height))",
+            "screen=\(screen.localizedName) frame=\(Int(screen.frame.minX)),\(Int(screen.frame.minY)) \(Int(screen.frame.width))x\(Int(screen.frame.height))",
+            "visible=\(Int(visible.minX)),\(Int(visible.minY)) \(Int(visible.width))x\(Int(visible.height))"
+        ]
+        for kind in ["left", "right", "top", "bottom", "maximize", "center"] {
+            guard let rect = targetRect(kind: kind, windowFrame: windowFrame, visible: visible) else { continue }
+            lines.append("\(kind)=\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height))")
+        }
+        return lines
     }
 
     private static func screenContaining(_ axFrame: CGRect) -> NSScreen? {

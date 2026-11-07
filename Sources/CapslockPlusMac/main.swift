@@ -85,6 +85,13 @@ func runTransformSelfTest() -> Int32 {
     return 1
 }
 
+if CommandLine.arguments.contains("--probe-tiling") {
+    for line in WindowActions.describeTiling() {
+        print(line)
+    }
+    exit(0)
+}
+
 if CommandLine.arguments.contains("--transform-selftest") {
     exit(runTransformSelfTest())
 }
