@@ -39,6 +39,30 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
 
 
 /// 只看焦点元素，不递归——给会卡死客户端的浏览器（Firefox）用
+/// 给前台 App 发一次 Cmd+A 造出选区，再读 AX——用来分辨"浏览器不暴露选区"还是"当时没选区"
+func runSelectAllProbe(bundleID: String) -> Int32 {
+    var lines: [String] = []
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+        try? "app not running".write(toFile: "/tmp/axselectall.txt", atomically: true, encoding: .utf8)
+        return 2
+    }
+    app.activate(options: [])
+    usleep(300_000)
+    if let source = CGEventSource(stateID: .combinedSessionState),
+       let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+       let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+        down.flags = .maskCommand
+        up.flags = .maskCommand
+        down.post(tap: .cgSessionEventTap)
+        up.post(tap: .cgSessionEventTap)
+    }
+    usleep(600_000)
+    lines.append("trusted=\(AXIsProcessTrusted() ? 1 : 0)")
+    lines.append("selectedText=\(AX.selectedText(forPID: app.processIdentifier) ?? "nil")")
+    try? lines.joined(separator: "\n").write(toFile: "/tmp/axselectall.txt", atomically: true, encoding: .utf8)
+    return 0
+}
+
 func runAXLightProbe(bundleID: String) -> Int32 {
     var lines: [String] = []
     let outPath = "/tmp/axlight.txt"
@@ -289,6 +313,11 @@ func runTilingSelfTest() -> Int32 {
     return 1
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--ax-selectall"),
+   index + 1 < CommandLine.arguments.count {
+    exit(runSelectAllProbe(bundleID: CommandLine.arguments[index + 1]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--ax-light"),
    index + 1 < CommandLine.arguments.count {
     exit(runAXLightProbe(bundleID: CommandLine.arguments[index + 1]))
@@ -391,7 +420,7 @@ app.setActivationPolicy(.accessory)
 
 // 单实例保护：两个进程各自建 event tap、各自切输入法，会表现为"长按切了输入法但不生效"
 // （每次按键被处理两次，输入源被切换两轮，正好回到原点）
-let isProbeRun = CommandLine.arguments.contains("--ax-probe") || CommandLine.arguments.contains("--ax-light")
+let isProbeRun = CommandLine.arguments.contains("--ax-probe") || CommandLine.arguments.contains("--ax-light") || CommandLine.arguments.contains("--ax-selectall")
 if let bundleID = Bundle.main.bundleIdentifier, !isProbeRun {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
