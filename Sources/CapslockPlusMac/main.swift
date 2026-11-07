@@ -23,7 +23,16 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
             let picked = TranslatePanel.shared.selectionText
             let stable = abs(firstOrigin.x - secondOrigin.x) < 0.5 && abs(firstOrigin.y - secondOrigin.y) < 0.5
             print("stable=\(stable ? 1 : 0)")
-            exit((picked == expected && stable) ? 0 : 1)
+
+            // 关掉浮层后必须把 App 激活状态还回去，否则目标 App 会把 AX 选区清空
+            TranslatePanel.shared.dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                let active = NSApp.isActive ? 1 : 0
+                let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil"
+                print("afterDismiss active=\(active) frontmost=\(front)")
+                let restored = active == 0
+                exit((picked == expected && stable && restored) ? 0 : 1)
+            }
         }
     }
 }
