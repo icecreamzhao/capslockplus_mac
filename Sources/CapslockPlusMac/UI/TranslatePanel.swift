@@ -84,7 +84,7 @@ final class TranslatePanel: NSPanel {
     }
 
     func show(result: Translation) {
-        render(title: result.query, subtitle: "在线 · 有道", body: result.displayText)
+        render(title: result.query, subtitle: "在线 · " + result.engine, body: result.displayText)
     }
 
     func show(entry: DictEntry, audio: String?) {

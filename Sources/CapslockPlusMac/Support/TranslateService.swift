@@ -7,6 +7,7 @@ struct Translation {
     var phonetic: String?
     var lines: [String]
     var webLines: [String]
+    var engine: String = "有道"
 
     var isEmpty: Bool { lines.isEmpty }
 
@@ -38,12 +39,30 @@ enum TranslateService {
     }
 
     /// 不切线程的版本（CLI 探针用：主线程会被信号量阻塞，切主线程会死锁）。
+    /// 有智云凭据就先走官方 NMT，失败再退公开 jsonapi。
     static func fetchRaw(_ rawQuery: String, completion: @escaping (Translation?, String?) -> Void) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             completion(nil, "没有选中文字")
             return
         }
+
+        if YoudaoNMT.credentials() != nil {
+            YoudaoNMT.translate(query, timeoutMs: Config.shared.translateTimeoutMs) { translation, message in
+                if let translation = translation {
+                    completion(translation, nil)
+                    return
+                }
+                Log.warn("nmt failed reason=\(message ?? "-") -> jsonapi fallback")
+                fetchJSONAPI(query, completion: completion)
+            }
+            return
+        }
+
+        fetchJSONAPI(query, completion: completion)
+    }
+
+    private static func fetchJSONAPI(_ query: String, completion: @escaping (Translation?, String?) -> Void) {
 
         var components = URLComponents(string: endpoint)
         components?.queryItems = [URLQueryItem(name: "q", value: query)]
