@@ -169,6 +169,9 @@ final class TranslatePanel: NSPanel {
 
         var height = padding * 2 + titleHeight + subtitleHeight + spacing + bodyHeight
         height = max(height, 58)
+        // 先记住原位置再改 frame：setFrame 会把 origin 打回 (0,0)，
+        // 之前顺序反了，结果第二次渲染（结果回来）时浮层跳到左下角
+        let previousOrigin = frame.origin
         setFrame(NSRect(x: 0, y: 0, width: width, height: height), display: true)
 
         var top = height - padding
@@ -187,7 +190,6 @@ final class TranslatePanel: NSPanel {
             bodyTextView.textContainer?.containerSize = NSSize(width: textWidth, height: .greatestFiniteMagnitude)
         }
 
-        let previousOrigin = frame.origin
         if !keepPosition || !isShown {
             positionNearCursor()
         } else {
