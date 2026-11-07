@@ -73,18 +73,45 @@ enum AX {
     }
 
     static func selectedText() -> String? {
-        guard let element = focusedElement() else {
+        guard let app = focusedApplication() else {
             Log.warn("axDenied")
             return nil
         }
+        var pid: pid_t = 0
+        AXUIElementGetPid(app, &pid)
+        let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "?"
+
+        // 浮层自己是 key 的时候，系统级「焦点 App」会变成我们；这时候读到的是浮层里的空选区
+        if pid == ProcessInfo.processInfo.processIdentifier {
+            Log.warn("axSelection self-app pid=\(pid) -> ignore")
+            return nil
+        }
+
+        let focusedUI = elementAttribute(app, kAXFocusedUIElementAttribute as CFString)
+        let element = focusedUI ?? elementAttribute(app, kAXFocusedWindowAttribute as CFString)
+        guard let element = element else {
+            Log.warn("axSelection no-element app=\(bundle) pid=\(pid)")
+            return nil
+        }
+        let role = (elementAttribute(element, kAXRoleAttribute as CFString) as? String) ?? "?"
+
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value)
         guard error == .success else {
+            Log.warn("axSelection error app=\(bundle) pid=\(pid) role=\(role) source=\(focusedUI == nil ? "window" : "uiElement") code=\(error.rawValue)")
             report(error)
             return nil
         }
-        guard let raw = value else { return nil }
-        return raw as? String
+        guard let raw = value else {
+            Log.warn("axSelection nil app=\(bundle) pid=\(pid) role=\(role)")
+            return nil
+        }
+        let text = (raw as? String) ?? ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Log.warn("axSelection empty app=\(bundle) pid=\(pid) role=\(role) source=\(focusedUI == nil ? "window" : "uiElement")")
+            return nil
+        }
+        return text
     }
 
     static func setSelectedText(_ text: String) -> Bool {
