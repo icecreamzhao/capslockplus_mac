@@ -67,6 +67,52 @@ func runSelectAllProbe(bundleID: String) -> Int32 {
     return 0
 }
 
+/// 扫一遍当前前台 App 集合，报告每个 App 的选区可读性（不需要事先有选区，看属性是否存在）
+func runAXMatrixProbe() -> Int32 {
+    let outPath = "/tmp/axmatrix.txt"
+    var lines: [String] = []
+    func flush() { try? lines.joined(separator: "\n").write(toFile: outPath, atomically: true, encoding: .utf8) }
+    let selfPID = ProcessInfo.processInfo.processIdentifier
+    let apps = NSWorkspace.shared.runningApplications
+        .filter { $0.activationPolicy == .regular && $0.processIdentifier != selfPID }
+        .sorted { ($0.bundleIdentifier ?? "") < ($1.bundleIdentifier ?? "") }
+
+    lines.append("bundle\tmanual\trole\tselectedText\tmarker\tvalueLen")
+    flush()
+    for app in apps {
+        let ax = AXUIElementCreateApplication(app.processIdentifier)
+        let manual = AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        usleep(250_000)
+
+        var focusedRaw: CFTypeRef?
+        var role = "-", hasText = "-", hasMarker = "-", valueLen = "-"
+        if AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focusedRaw) == .success,
+           let raw = focusedRaw, CFGetTypeID(raw) == AXUIElementGetTypeID() {
+            let element = raw as! AXUIElement
+            var names: CFArray?
+            AXUIElementCopyAttributeNames(element, &names)
+            let list = (names as? [String]) ?? []
+            for n in list {
+                if n == kAXRoleAttribute as String {
+                    var v: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &v) == .success,
+                       let s = v as? String { role = s }
+                }
+            }
+            hasText = list.contains(kAXSelectedTextAttribute as String) ? "yes" : "no"
+            hasMarker = list.contains("AXSelectedTextMarkerRange") ? "yes" : "no"
+            var v: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &v) == .success,
+               let s = v as? String { valueLen = String(s.count) }
+        } else {
+            role = "no-focused"
+        }
+        lines.append("\(app.bundleIdentifier ?? "?")\t\(manual.rawValue)\t\(role)\t\(hasText)\t\(hasMarker)\t\(valueLen)")
+        flush()
+    }
+    return 0
+}
+
 func runAXLightProbe(bundleID: String) -> Int32 {
     var lines: [String] = []
     let outPath = "/tmp/axlight.txt"
@@ -326,6 +372,10 @@ if let index = CommandLine.arguments.firstIndex(of: "--ax-selectall"),
     exit(runSelectAllProbe(bundleID: CommandLine.arguments[index + 1]))
 }
 
+if CommandLine.arguments.contains("--ax-matrix") {
+    exit(runAXMatrixProbe())
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--ax-light"),
    index + 1 < CommandLine.arguments.count {
     exit(runAXLightProbe(bundleID: CommandLine.arguments[index + 1]))
@@ -428,7 +478,7 @@ app.setActivationPolicy(.accessory)
 
 // 单实例保护：两个进程各自建 event tap、各自切输入法，会表现为"长按切了输入法但不生效"
 // （每次按键被处理两次，输入源被切换两轮，正好回到原点）
-let isProbeRun = CommandLine.arguments.contains("--ax-probe") || CommandLine.arguments.contains("--ax-light") || CommandLine.arguments.contains("--ax-selectall")
+let isProbeRun = CommandLine.arguments.contains("--ax-probe") || CommandLine.arguments.contains("--ax-light") || CommandLine.arguments.contains("--ax-selectall") || CommandLine.arguments.contains("--ax-matrix")
 if let bundleID = Bundle.main.bundleIdentifier, !isProbeRun {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
