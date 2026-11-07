@@ -15,6 +15,7 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
             TranslatePanel.shared.show(entry: longer, audio: nil)
             let secondOrigin = TranslatePanel.shared.debugOrigin
             print("origin1=\(firstOrigin) origin2=\(secondOrigin)")
+            print("appActive=\(NSApp.isActive ? 1 : 0) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil") panelKey=\(TranslatePanel.shared.isKeyWindow ? 1 : 0)")
             let expected = "verb  打招呼\nnoun  你好\nnoun  喂\n例  hello there 你好呀"
             let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
