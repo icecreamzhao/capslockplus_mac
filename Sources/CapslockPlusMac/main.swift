@@ -58,7 +58,11 @@ func runSelectAllProbe(bundleID: String) -> Int32 {
     }
     usleep(600_000)
     lines.append("trusted=\(AXIsProcessTrusted() ? 1 : 0)")
-    lines.append("selectedText=\(AX.selectedText(forPID: app.processIdentifier) ?? "nil")")
+    let direct = AX.selectedText(forPID: app.processIdentifier)
+    lines.append("directLen=\(direct?.count ?? -1)")
+    let deep = AX.selectedTextDeep(forPID: app.processIdentifier)
+    lines.append("deepLen=\(deep?.count ?? -1)")
+    lines.append("deepHead=\((deep ?? "nil").prefix(40))")
     try? lines.joined(separator: "\n").write(toFile: "/tmp/axselectall.txt", atomically: true, encoding: .utf8)
     return 0
 }

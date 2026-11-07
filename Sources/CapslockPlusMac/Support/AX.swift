@@ -113,43 +113,46 @@ enum AX {
         Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0) front=\(front?.bundleIdentifier ?? "?") frontpid=\(front?.processIdentifier ?? 0)")
         var visited = 0
         var found: String?
-        let deadline = Date().addingTimeInterval(0.25)   // 主线程上跑，必须有时间预算
-        func scan(_ element: AXUIElement, depth: Int) {
-            guard found == nil, visited < 1500, depth <= 8, Date() < deadline else { return }
+        let deadline = Date().addingTimeInterval(0.40)   // 主线程上跑，必须有时间预算
+
+        // 广度优先：Safari/Firefox 的 AXWebArea 都在窗口的直接子层，
+        // 深度优先会一头扎进第一个子树（几千个节点）里出不来。
+        var queue: [(AXUIElement, Int)] = []
+        if let focused = elementAttribute(app, kAXFocusedUIElementAttribute as CFString) {
+            queue.append((focused, 0))
+        }
+        if let window = elementAttribute(app, kAXFocusedWindowAttribute as CFString) {
+            queue.append((window, 0))
+        }
+        for window in elementArrayAttribute(app, kAXWindowsAttribute as CFString) ?? [] {
+            queue.append((window, 0))
+        }
+
+        var index = 0
+        while index < queue.count, found == nil, visited < 1500, Date() < deadline {
+            let (element, depth) = queue[index]
+            index += 1
             visited += 1
+
             var value: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
                let raw = value as? String {
                 let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     found = trimmed
-                    return
+                    break
                 }
             }
             if let viaMarker = selectionViaMarker(element) {
                 found = viaMarker
-                return
+                break
             }
-            guard let children = childrenAttribute(element) else { return }
+            guard depth < 8, let children = childrenAttribute(element) else { continue }
             for child in children {
-                scan(child, depth: depth + 1)
-                if found != nil { return }
+                queue.append((child, depth + 1))
             }
         }
 
-        // 先看焦点元素本身（Safari 的选区就在 AXWebArea 上），再扫窗口树
-        if let focused = elementAttribute(app, kAXFocusedUIElementAttribute as CFString) {
-            scan(focused, depth: 0)
-        }
-        if found == nil, let window = elementAttribute(app, kAXFocusedWindowAttribute as CFString) {
-            scan(window, depth: 0)
-        }
-        if found == nil, let windows = elementArrayAttribute(app, kAXWindowsAttribute as CFString) {
-            for window in windows {
-                scan(window, depth: 0)
-                if found != nil { break }
-            }
-        }
         if let text = found {
             Log.info("axSelection deep hit apppid=\(pid) scanned=\(visited) len=\(text.count)")
         } else {
