@@ -491,7 +491,7 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count)")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count)")
         return true
     }
 
