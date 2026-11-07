@@ -61,6 +61,30 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 
 `wrapSelection(...)` 支持：`paren` `bracket` `brace` `angle` `quote` `singlequote` `backtick` `markdown`
 
+## 文本变换（选中文字后使用）
+
+全部通过 AX 读写选区完成，**不合成任何按键**，不会碰剪贴板。
+
+| 写法 | 作用 |
+|---|---|
+| `transform(upper)` / `transform(lower)` / `transform(title)` | 大写 / 小写 / 每个词首字母大写 |
+| `transform(camel)` | `user profile name` → `userProfileName` |
+| `transform(pascal)` | → `UserProfileName` |
+| `transform(snake)` | → `user_profile_name` |
+| `transform(kebab)` | → `user-profile-name` |
+| `transform(constant)` | → `USER_PROFILE_NAME` |
+| `transform(trim)` | 去掉首尾空白（逐行 + 整体） |
+| `transform(sort)` / `transform(sortdesc)` | 按行排序（本地化比较，中文按拼音） |
+| `transform(reverse)` | 行序反转 |
+| `transform(unique)` | 按行去重（保留首次出现顺序） |
+| `transform(jsonpretty)` / `transform(jsonmin)` | JSON 美化 / 压缩（非法 JSON 会失败并记日志） |
+| `transform(urlencode)` / `transform(urldecode)` | URL 编解码 |
+| `transform(ascii2cjk)` / `transform(cjk2ascii)` | 中英标点互换 `,.;:!?()[]` ↔ `，。；：！？（）【】` |
+
+切词规则：`userProfileID`、`user_profile_id`、`user-profile id` 都能正确切成 `user/profile/ID` 三段。
+
+变换后结果保持选中状态，可以连续套（先 `snake` 再 `upper`）。
+
 ## 窗口
 
 | 写法 | 作用 |
