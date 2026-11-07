@@ -1,6 +1,11 @@
 import Foundation
 import AppKit
 
+/// 面板里的按钮要在 App 未激活时也能一次点中
+final class PanelButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
 /// 查词浮层：无边框、不激活 App、贴鼠标位置。
 /// 正文用 NSTextView，可以划选单词、复制；关闭方式：再按一次热键 / 点浮层外 / 12 秒后自动消失。
 final class TranslatePanel: NSPanel {
@@ -10,7 +15,8 @@ final class TranslatePanel: NSPanel {
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let bodyTextView = NSTextView()
-    private let speakerButton = NSButton()
+    private let speakerButton = PanelButton()
+    private let closeButton = PanelButton()
     private var dismissTimer: Timer?
     private var keyMonitor: Any?
     private var isShown = false
@@ -76,10 +82,22 @@ final class TranslatePanel: NSPanel {
         speakerButton.action = #selector(playAudio)
         speakerButton.isHidden = true
 
+        closeButton.isBordered = false
+        closeButton.bezelStyle = .inline
+        closeButton.imagePosition = .imageOnly
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "关闭")
+        closeButton.contentTintColor = .tertiaryLabelColor
+        closeButton.target = self
+        closeButton.action = #selector(closePanel)
+        // 未激活时第一下点击也要立刻生效，不等 mouseUp
+        closeButton.sendAction(on: [.leftMouseDown])
+        speakerButton.sendAction(on: [.leftMouseDown])
+
         effectView.addSubview(titleLabel)
         effectView.addSubview(subtitleLabel)
         effectView.addSubview(bodyTextView)
         effectView.addSubview(speakerButton)
+        effectView.addSubview(closeButton)
         contentView = effectView
     }
 
@@ -179,10 +197,13 @@ final class TranslatePanel: NSPanel {
         setFrame(NSRect(x: 0, y: 0, width: width, height: height), display: true)
 
         var top = height - padding
-        let titleWidth = textWidth - (audio == nil ? 0 : 24)
+        let closeSize: CGFloat = 18
+        let closeX = width - padding - closeSize
+        let titleWidth = textWidth - 24 - (audio == nil ? 0 : 22)
         titleLabel.frame = NSRect(x: padding, y: top - titleHeight, width: titleWidth, height: titleHeight)
+        closeButton.frame = NSRect(x: closeX, y: top - titleHeight + 2, width: closeSize, height: closeSize)
         if audio != nil {
-            speakerButton.frame = NSRect(x: width - padding - 18, y: top - titleHeight + 2, width: 18, height: 18)
+            speakerButton.frame = NSRect(x: closeX - 22, y: top - titleHeight + 2, width: closeSize, height: closeSize)
         }
         top -= titleHeight
         if subtitleHeight > 0 {
@@ -266,6 +287,11 @@ final class TranslatePanel: NSPanel {
         report += " firstResponder=\(String(describing: firstResponder.map { type(of: $0) }))"
         report += " picked=\(String(describing: selectionText))"
         return report
+    }
+
+    @objc private func closePanel() {
+        Log.info("panel closed by button")
+        dismiss()
     }
 
     @objc private func playAudio() {

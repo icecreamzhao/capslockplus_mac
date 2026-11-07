@@ -113,6 +113,7 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 |---|---|
 | 在浮层正文里划选单词 → 再按 `caps+t` | 翻新选中的词，内容就地替换，浮层不跳位置 |
 | 浮层开着但没划选 → 再按 `caps+t` | 收起浮层，并把键盘焦点还给原来的 App |
+| 点右上角 ✕ | 收起 |
 | `Esc`（浮层是 key 时） | 收起 |
 | 点浮层外 / 等一会儿 | **不会**关闭（想恢复自动关闭设 `panelAutoHideMs`） |
 
