@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AVFoundation
 
 func runSelfTest() -> Int32 {
     var failures: [String] = []
@@ -131,6 +132,20 @@ func runTilingSelfTest() -> Int32 {
     }
     print("tiling selftest FAILED: \(failures)")
     return 1
+}
+
+if let index = CommandLine.arguments.firstIndex(of: "--audio-test"),
+   index + 1 < CommandLine.arguments.count {
+    let relative = CommandLine.arguments[index + 1]
+    let file = (AudioPlayer.audioRoot as NSString).appendingPathComponent(relative)
+    do {
+        let player = try AVAudioPlayer(contentsOf: URL(fileURLWithPath: file))
+        print("ok duration=\(String(format: "%.2f", player.duration))s file=\(relative)")
+        exit(0)
+    } catch {
+        print("FAILED: \(error.localizedDescription) file=\(relative)")
+        exit(1)
+    }
 }
 
 if let index = CommandLine.arguments.firstIndex(of: "--dict-test"),
