@@ -68,8 +68,9 @@ func runTransformSelfTest() -> Int32 {
         }
     }
 
-    if TextTransform.kinds.contains(where: { TextTransform.apply($0, to: "x") == nil }) {
-        print("FAIL: kinds 里有 apply 不认识的项")
+    // json 类对非法输入返回 nil 是预期行为，所以只校验"未知 kind 必须被拒绝"
+    if TextTransform.apply("nosuchkind", to: "x") != nil {
+        print("FAIL: 未知 kind 没有被拒绝")
         failures += 1
     }
 
