@@ -76,12 +76,34 @@ enum AX {
     /// 有些 App（实测 Terminal）在窗口不是 key 时会对外报空选区，但选区其实还在。
     static func selectedTextDeep() -> String? {
         if let text = selectedText() { return text }
+
+        // AX 的「系统级焦点 App」会滞后（浮层关掉、快速切换时读到上一个 App）。
+        // 用 NSWorkspace 的前台 App 兜一次，两者不同才重试。
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.processIdentifier != ProcessInfo.processInfo.processIdentifier,
+           let frontApp = NSWorkspace.shared.frontmostApplication?.processIdentifier as pid_t? {
+            var axPid: pid_t = 0
+            if let app = focusedApplication() {
+                AXUIElementGetPid(app, &axPid)
+            }
+            if axPid != frontApp {
+                Log.warn("axSelection front-differs axpid=\(axPid) frontpid=\(frontApp) front=\(front.bundleIdentifier ?? "?") -> retry front")
+                let element = AXUIElementCreateApplication(frontApp)
+                if let raw = elementAttribute(element, kAXFocusedUIElementAttribute as CFString),
+                   let text = readSelection(raw),
+                   !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return text
+                }
+            }
+        }
+
         guard let app = focusedApplication() else { return nil }
         var pid: pid_t = 0
         AXUIElementGetPid(app, &pid)
         guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
 
-        Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0)")
+        let front = NSWorkspace.shared.frontmostApplication
+        Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0) front=\(front?.bundleIdentifier ?? "?") frontpid=\(front?.processIdentifier ?? 0)")
         var visited = 0
         var found: String?
         func scan(_ element: AXUIElement, depth: Int) {
@@ -118,6 +140,13 @@ enum AX {
             Log.warn("axSelection deep miss apppid=\(pid) scanned=\(visited)")
         }
         return found
+    }
+
+    private static func readSelection(_ element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
+              let raw = value as? String else { return nil }
+        return raw
     }
 
     private static func childrenAttribute(_ element: AXUIElement) -> [AXUIElement]? {
