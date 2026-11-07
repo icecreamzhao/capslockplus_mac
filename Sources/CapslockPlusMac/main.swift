@@ -112,8 +112,8 @@ func runTilingSelfTest() -> Int32 {
     let odd = CGRect(x: 0, y: 0, width: 1001, height: 801)
     if let l = WindowActions.targetRect(kind: "left", windowFrame: window, visible: odd),
        let r = WindowActions.targetRect(kind: "right", windowFrame: window, visible: odd) {
-        if l.maxX != r.minX || l.maxX != odd.maxX {
-            print("FAIL odd width seam: left.maxX=\(l.maxX) right.minX=\(r.minX) visible.maxX=\(odd.maxX)")
+        if l.maxX != r.minX || r.maxX != odd.maxX || l.width + r.width != odd.width {
+            print("FAIL odd width seam: left=\(l) right=\(r) visible=\(odd)")
             failures += 1
         }
     } else {
