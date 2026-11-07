@@ -48,6 +48,7 @@ func runAXProbe(bundleID: String) -> Int32 {
     }
     let ax = AXUIElementCreateApplication(app.processIdentifier)
     lines.append("enhancedUI=\(AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue).rawValue)")
+    lines.append("manualA11y=\(AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)")
 
     func elementAttr(_ el: AXUIElement, _ name: CFString) -> AXUIElement? {
         var v: CFTypeRef?
