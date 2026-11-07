@@ -31,6 +31,60 @@ func runSelfTest() -> Int32 {
     return 1
 }
 
+func runTransformSelfTest() -> Int32 {
+    let cases: [(String, String, String)] = [
+        ("upper", "Hello world", "HELLO WORLD"),
+        ("lower", "Hello World", "hello world"),
+        ("title", "hello world", "Hello World"),
+        ("camel", "user profile name", "userProfileName"),
+        ("camel", "user_profile_name", "userProfileName"),
+        ("camel", "userProfileID", "userProfileId"),
+        ("pascal", "user-profile name", "UserProfileName"),
+        ("snake", "userProfileName", "user_profile_name"),
+        ("kebab", "userProfileName", "user-profile-name"),
+        ("constant", "userProfileName", "USER_PROFILE_NAME"),
+        ("sort", "b\na\nc", "a\nb\nc"),
+        ("sortdesc", "a\nc\nb", "c\nb\na"),
+        ("unique", "a\na\nb", "a\nb"),
+        ("reverse", "a\nb\nc", "c\nb\na"),
+        ("trim", "  a  \n  b  ", "a\nb"),
+        ("jsonmin", "{\"a\": 1, \"b\": [2, 3]}", "{\"a\":1,\"b\":[2,3]}"),
+        ("urlencode", "a b&c", "a%20b%26c"),
+        ("urldecode", "a%20b", "a b"),
+        ("ascii2cjk", "Hello, world! (yes)", "Hello， world！ （yes）"),
+        ("cjk2ascii", "Hello， world！", "Hello, world!")
+    ]
+
+    var failures = 0
+    for (kind, input, expected) in cases {
+        guard let output = TextTransform.apply(kind, to: input) else {
+            print("FAIL \(kind): nil (unknown kind)")
+            failures += 1
+            continue
+        }
+        if output != expected {
+            print("FAIL \(kind): got \(output.debugDescription) want \(expected.debugDescription)")
+            failures += 1
+        }
+    }
+
+    if TextTransform.kinds.contains(where: { TextTransform.apply($0, to: "x") == nil }) {
+        print("FAIL: kinds 里有 apply 不认识的项")
+        failures += 1
+    }
+
+    if failures == 0 {
+        print("transform selftest OK (\(cases.count) cases, \(TextTransform.kinds.count) kinds)")
+        return 0
+    }
+    print("transform selftest FAILED: \(failures)")
+    return 1
+}
+
+if CommandLine.arguments.contains("--transform-selftest") {
+    exit(runTransformSelfTest())
+}
+
 if CommandLine.arguments.contains("--selftest") {
     exit(runSelfTest())
 }

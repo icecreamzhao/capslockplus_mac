@@ -95,6 +95,8 @@ enum TextActions {
             KeyPost.key(left, flags: [.maskAlternate, .maskShift])
         case .wrapSelection(let kind):
             wrapSelection(kind)
+        case .transform(let kind):
+            transformSelection(kind)
         case .sendKeys(let spec):
             if KeyPost.keys(spec) {
                 Log.info("action=send spec=\(spec) ok=1")
@@ -116,6 +118,30 @@ enum TextActions {
             return false
         }
         return true
+    }
+
+    private static func transformSelection(_ kind: String) {
+        guard TextTransform.kinds.contains(kind.lowercased()) else {
+            Log.warn("transform unknown kind=\(kind)")
+            return
+        }
+        guard let selected = AX.selectedText(), !selected.isEmpty else {
+            Log.warn("transform failed reason=no-selection kind=\(kind)")
+            return
+        }
+        guard let output = TextTransform.apply(kind, to: selected) else {
+            Log.warn("transform failed reason=apply kind=\(kind)")
+            return
+        }
+        let range = AX.selectedRange()
+        guard AX.setSelectedText(output) else {
+            Log.warn("transform failed reason=write kind=\(kind)")
+            return
+        }
+        if let range = range {
+            _ = AX.setSelectedRange(CFRange(location: range.location, length: (output as NSString).length))
+        }
+        Log.info("transform \(kind) chars=\(selected.count)->\(output.count)")
     }
 
     private static func repeatKey(_ code: CGKeyCode, count: Int, flags: CGEventFlags = []) {

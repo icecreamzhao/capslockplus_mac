@@ -42,6 +42,7 @@ enum Action: Equatable {
     case pressReturn
     case selectCurrentWord
     case wrapSelection(String)
+    case transform(String)
 
     case cut
     case copy
@@ -101,6 +102,7 @@ enum Action: Equatable {
         case .pressReturn: return "pressReturn"
         case .selectCurrentWord: return "selectCurrentWord"
         case .wrapSelection(let kind): return "wrapSelection(\(kind))"
+        case .transform(let kind): return "transform(\(kind))"
         case .cut: return "cut"
         case .copy: return "copy"
         case .paste: return "paste"
@@ -195,6 +197,9 @@ enum Action: Equatable {
         }
         if let kind = argument(of: lower, prefix: "wrapselection("), !kind.isEmpty {
             return .wrapSelection(kind)
+        }
+        if let kind = argument(of: lower, prefix: "transform("), !kind.isEmpty {
+            return .transform(kind)
         }
         if let index = integerArgument(of: lower, prefix: "window.bind(") {
             return .windowBind(index)
