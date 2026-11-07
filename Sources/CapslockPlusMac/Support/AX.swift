@@ -226,6 +226,15 @@ enum AX {
             Log.warn("axDenied")
             return nil
         }
+        return selectedText(inApp: app)
+    }
+
+    /// 指定 pid 的 App 读选区（探针用；也方便将来自定义"始终读取某个 App"）。
+    static func selectedText(forPID pid: pid_t) -> String? {
+        selectedText(inApp: AXUIElementCreateApplication(pid))
+    }
+
+    private static func selectedText(inApp app: AXUIElement) -> String? {
         var pid: pid_t = 0
         AXUIElementGetPid(app, &pid)
         let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "?"
