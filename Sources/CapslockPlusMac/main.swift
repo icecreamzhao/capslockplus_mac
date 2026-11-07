@@ -7,13 +7,22 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
         let entry = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
                               body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil)
         TranslatePanel.shared.show(entry: entry, audio: nil)
+        let firstOrigin = TranslatePanel.shared.debugOrigin
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            let expected = "verb  打招呼\nnoun  你好"
+            // 模拟"结果回来再渲染一次"：位置必须原地不动
+            let longer = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
+                                   body: "verb\t打招呼\nnoun\t你好\nnoun\t喂\n例\thello there 你好呀", audioBre: nil, audioAme: nil)
+            TranslatePanel.shared.show(entry: longer, audio: nil)
+            let secondOrigin = TranslatePanel.shared.debugOrigin
+            print("origin1=\(firstOrigin) origin2=\(secondOrigin)")
+            let expected = "verb  打招呼\nnoun  你好\nnoun  喂\n例  hello there 你好呀"
             let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
             print(report)
             let picked = TranslatePanel.shared.selectionText
-            exit(picked == expected ? 0 : 1)
+            let stable = abs(firstOrigin.x - secondOrigin.x) < 0.5 && abs(firstOrigin.y - secondOrigin.y) < 0.5
+            print("stable=\(stable ? 1 : 0)")
+            exit((picked == expected && stable) ? 0 : 1)
         }
     }
 }

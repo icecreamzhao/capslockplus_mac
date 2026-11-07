@@ -247,6 +247,8 @@ final class TranslatePanel: NSPanel {
         }
     }
 
+    var debugOrigin: NSPoint { frame.origin }
+
     /// 自检用：程序化全选正文，再按正常路径读选区，验证 NSTextView 这条路通。
     func debugSelectAllBody() -> String {
         makeKeyAndOrderFront(nil)
