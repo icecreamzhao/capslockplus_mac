@@ -103,6 +103,22 @@ python3 scripts/mdd-to-audio.py \
 ```
 
 - 依赖只在转换阶段：`pip3 install --user readmdict`（缺 python-lzo 时脚本会塞占位模块，这两本都是 zlib 压缩）
+## 在线翻译（有道智云）
+
+有凭据就走官方 NMT，没有或调用失败时自动退回公开的 `dict.youdao.com/jsonapi`。
+
+```bash
+# 凭据不进仓库，chmod 600
+cat > ~/.config/capslock-plus-mac/youdao.json <<'JSON'
+{"appId": "你的appId", "appSecret": "你的appSecret"}
+JSON
+chmod 600 ~/.config/capslock-plus-mac/youdao.json
+```
+
+- 接口：`POST https://openapi.youdao.com/api`，`from=auto&to=auto`，`signType=v3`
+- 签名：`SHA256(appId + 截断后的q + salt + curtime + appSecret)`；q 超过 20 字符时取「前10 + 长度 + 后10」
+- 日志里用 `engine=有道智云` / `nmt failed ... -> jsonapi fallback` 区分实际走了哪条
+
 - `dict.sqlite` 48MB / 10.4 万词条；`audio` 505MB / 9.5 万 mp3
 - 牛津包 `mdd` 只有 1,388 个图片，没有音频；读音全部来自朗文
 - 转换脚本以 `PRAGMA journal_mode=DELETE` 收尾，别留 WAL —— 只读打开 WAL 库会 `SQLITE_CANTOPEN`
