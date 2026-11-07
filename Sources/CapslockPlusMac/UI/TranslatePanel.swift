@@ -235,7 +235,7 @@ final class TranslatePanel: NSPanel {
             return report + " editor=nil"
         }
         editor.selectedRange = NSRange(location: 0, length: (bodyLabel.stringValue as NSString).length)
-        report += " editor=\(type(of: editor)) range=\(editor.selectedRange())"
+        report += " editor=\(type(of: editor)) range=\(editor.selectedRange)"
         report += " picked=\(String(describing: selectionText))"
         return report
     }
