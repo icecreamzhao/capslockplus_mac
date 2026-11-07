@@ -57,7 +57,7 @@ final class TranslatePanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    var isVisible: Bool { isShown }
+    var isShowing: Bool { isShown }
 
     func showPending(query: String) {
         render(query: query, body: "查询中…")

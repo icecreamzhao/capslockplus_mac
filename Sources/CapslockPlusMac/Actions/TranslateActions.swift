@@ -3,7 +3,7 @@ import Foundation
 enum TranslateActions {
     /// 选中文字 → 浮层显示翻译。再按一次收起。
     static func translateSelection() {
-        if TranslatePanel.shared.isVisible {
+        if TranslatePanel.shared.isShowing {
             TranslatePanel.shared.dismiss()
             Log.info("translate toggle off")
             return
@@ -27,14 +27,14 @@ enum TranslateActions {
 
         Log.info("translate query=\(query)")
         TranslatePanel.shared.showPending(query: query)
-        TranslateService.fetch(query) { result in
-            switch result {
-            case .success(let translation):
+        TranslateService.fetch(query) { translation, message in
+            if let translation = translation {
                 Log.info("translate ok query=\(translation.query) lines=\(translation.lines.count) web=\(translation.webLines.count)")
                 TranslatePanel.shared.show(result: translation)
-            case .failure(let message):
-                Log.warn("translate failed reason=\(message)")
-                TranslatePanel.shared.show(error: message)
+            } else {
+                let text = message ?? "未知错误"
+                Log.warn("translate failed reason=\(text)")
+                TranslatePanel.shared.show(error: text)
             }
         }
     }

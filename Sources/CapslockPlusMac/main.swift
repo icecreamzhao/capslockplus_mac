@@ -137,15 +137,14 @@ if let index = CommandLine.arguments.firstIndex(of: "--translate-test"),
    index + 1 < CommandLine.arguments.count {
     let query = CommandLine.arguments[index + 1]
     let semaphore = DispatchSemaphore(value: 0)
-    TranslateService.fetch(query) { result in
-        switch result {
-        case .success(let translation):
+    TranslateService.fetch(query) { translation, message in
+        if let translation = translation {
             print("query=\(translation.query)")
             print("phonetic=\(translation.phonetic ?? "-")")
             print("lines=\(translation.lines.count) web=\(translation.webLines.count)")
             print(translation.displayText)
-        case .failure(let message):
-            print("FAILED: \(message)")
+        } else {
+            print("FAILED: \(message ?? "unknown")")
         }
         semaphore.signal()
     }

@@ -281,6 +281,8 @@ final class Config {
     static let shared = Config()
 
     private(set) var keymap: Keymap
+    private(set) var translateEndpoint: String = "https://dict.youdao.com/jsonapi"
+    private(set) var translateTimeoutMs: Int = 4000
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -429,6 +431,10 @@ final class Config {
             Log.warn("configLoad failed reason=json")
             return false
         }
+
+        translateEndpoint = (root["translateEndpoint"] as? String) ?? "https://dict.youdao.com/jsonapi"
+        let timeout = (root["translateTimeoutMs"] as? NSNumber)?.intValue ?? 4000
+        translateTimeoutMs = min(max(timeout, 1000), 15000)
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action

@@ -30,17 +30,17 @@ enum TranslateService {
         Config.shared.translateEndpoint
     }
 
-    static func fetch(_ rawQuery: String, completion: @escaping (Result<Translation, String>) -> Void) {
+    static func fetch(_ rawQuery: String, completion: @escaping (Translation?, String?) -> Void) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
-            completion(.failure("没有选中文字"))
+            completion(nil, "没有选中文字")
             return
         }
 
         var components = URLComponents(string: endpoint)
         components?.queryItems = [URLQueryItem(name: "q", value: query)]
         guard let url = components?.url else {
-            completion(.failure("接口地址无效"))
+            completion(nil, "接口地址无效")
             return
         }
 
@@ -50,19 +50,19 @@ enum TranslateService {
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                DispatchQueue.main.async { completion(.failure("网络错误：\(error.localizedDescription)")) }
+                DispatchQueue.main.async { completion(nil, "网络错误：\(error.localizedDescription)") }
                 return
             }
             guard let data = data, !data.isEmpty else {
-                DispatchQueue.main.async { completion(.failure("没有返回内容")) }
+                DispatchQueue.main.async { completion(nil, "没有返回内容") }
                 return
             }
             let result = parse(data: data, query: query)
             DispatchQueue.main.async {
                 if result.isEmpty {
-                    completion(.failure("没查到释义"))
+                    completion(nil, "没查到释义")
                 } else {
-                    completion(.success(result))
+                    completion(result, nil)
                 }
             }
         }
