@@ -52,7 +52,10 @@ func runTransformSelfTest() -> Int32 {
         ("urlencode", "a b&c", "a%20b%26c"),
         ("urldecode", "a%20b", "a b"),
         ("ascii2cjk", "Hello, world! (yes)", "Hello， world！ （yes）"),
-        ("cjk2ascii", "Hello， world！", "Hello, world!")
+        ("cjk2ascii", "Hello， world！", "Hello, world!"),
+        ("punctoggle", "Hello, world!", "Hello， world！"),
+        ("punctoggle", "Hello， world！", "Hello, world!"),
+        ("punctoggle", "他说：\"好的\"", "他说:\"好的\"")
     ]
 
     var failures = 0

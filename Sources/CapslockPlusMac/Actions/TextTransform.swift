@@ -8,7 +8,7 @@ enum TextTransform {
         "trim", "sort", "sortdesc", "reverse", "unique",
         "jsonpretty", "jsonmin",
         "urlencode", "urldecode",
-        "ascii2cjk", "cjk2ascii"
+        "ascii2cjk", "cjk2ascii", "punctoggle"
     ]
 
     /// 返回 nil 表示不认识的 kind（调用方记日志），空串是有意义的返回值。
@@ -58,6 +58,10 @@ enum TextTransform {
             return translatePunctuation(text, toCJK: true)
         case "cjk2ascii":
             return translatePunctuation(text, toCJK: false)
+        case "punctoggle":
+            // 选中内容里有中文标点就转成英文，否则转成中文
+            let hasCJK = text.contains { cjkPunctuation.contains($0) }
+            return translatePunctuation(text, toCJK: !hasCJK)
         default:
             return nil
         }
@@ -130,26 +134,43 @@ enum TextTransform {
         return string
     }
 
+    private static let cjkPunctuation: Set<Character> = [
+        "，", "。", "！", "？", "：", "；", "（", "）", "【", "】",
+        "“", "”", "‘", "’", "、"
+    ]
+
     private static let toCJKMap: [Character: Character] = [
         ",": "，", ".": "。", "!": "！", "?": "？", ":": "：", ";": "；",
         "(": "（", ")": "）", "[": "【", "]": "】"
     ]
 
+    private static let fromCJKMap: [Character: Character] = [
+        "，": ",", "。": ".", "！": "!", "？": "?", "：": ":", "；": ";",
+        "（": "(", "）": ")", "【": "[", "】": "]", "、": ",",
+        "“": "\"", "”": "\"", "‘": "'", "’": "'"
+    ]
+
     private static func translatePunctuation(_ text: String, toCJK: Bool) -> String {
-        let map = toCJK ? toCJKMap : Dictionary(uniqueKeysWithValues: toCJKMap.map { ($1, $0) })
         var out = String()
         out.reserveCapacity(text.count)
         for ch in text {
-            if let mapped = map[ch] {
-                out.append(mapped)
-                continue
-            }
-            // 只换直引号，不碰已经成对的“”‘’
             if toCJK {
-                if ch == "\"" { out.append("“"); continue }
-                if ch == "'" { out.append("‘"); continue }
+                if let mapped = toCJKMap[ch] {
+                    out.append(mapped)
+                } else if ch == "\"" {
+                    out.append("“")
+                } else if ch == "'" {
+                    out.append("‘")
+                } else {
+                    out.append(ch)
+                }
+            } else {
+                if let mapped = fromCJKMap[ch] {
+                    out.append(mapped)
+                } else {
+                    out.append(ch)
+                }
             }
-            out.append(ch)
         }
         return out
     }
