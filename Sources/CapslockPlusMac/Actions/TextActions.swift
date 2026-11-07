@@ -97,6 +97,8 @@ enum TextActions {
             wrapSelection(kind)
         case .transform(let kind):
             transformSelection(kind)
+        case .insertDate(let format):
+            insertDate(format)
         case .sendKeys(let spec):
             if KeyPost.keys(spec) {
                 Log.info("action=send spec=\(spec) ok=1")
@@ -118,6 +120,19 @@ enum TextActions {
             return false
         }
         return true
+    }
+
+    private static func insertDate(_ format: String) {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = format
+        let text = formatter.string(from: Date())
+        if AX.setSelectedText(text) {
+            Log.info("insertdate \(format) -> \(text) via=ax")
+            return
+        }
+        KeyPost.text(text)
+        Log.info("insertdate \(format) -> \(text) via=typing")
     }
 
     private static func transformSelection(_ kind: String) {

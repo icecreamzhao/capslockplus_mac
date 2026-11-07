@@ -20,6 +20,100 @@ enum WindowActions {
         _ = bindings
     }
 
+    // MARK: - 平铺
+
+    /// 把聚焦窗口贴到当前屏幕可视区的左/右/上/下半屏、最大化或居中。
+    /// 全屏（Full Screen Space）窗口无法移动，AX 会失败，这里如实记录。
+    static func tile(_ kind: String) {
+        guard let windowFrame = AX.focusedWindowFrame() else {
+            Log.warn("tile failed reason=no-window kind=\(kind)")
+            return
+        }
+        guard let screen = screenContaining(windowFrame) else {
+            Log.warn("tile failed reason=no-screen kind=\(kind)")
+            return
+        }
+        let visible = axVisibleFrame(of: screen)
+
+        var target: CGRect
+        switch kind.lowercased() {
+        case "left":
+            target = CGRect(x: visible.minX, y: visible.minY,
+                            width: (visible.width / 2).rounded(), height: visible.height)
+        case "right":
+            let half = (visible.width / 2).rounded()
+            target = CGRect(x: visible.minX + half, y: visible.minY,
+                            width: visible.width - half, height: visible.height)
+        case "top":
+            target = CGRect(x: visible.minX, y: visible.minY,
+                            width: visible.width, height: (visible.height / 2).rounded())
+        case "bottom":
+            let half = (visible.height / 2).rounded()
+            target = CGRect(x: visible.minX, y: visible.minY + half,
+                            width: visible.width, height: visible.height - half)
+        case "maximize":
+            target = visible
+        case "center":
+            let width = min(windowFrame.width, visible.width)
+            let height = min(windowFrame.height, visible.height)
+            target = CGRect(
+                x: visible.minX + ((visible.width - width) / 2).rounded(),
+                y: visible.minY + ((visible.height - height) / 2).rounded(),
+                width: width,
+                height: height
+            )
+        default:
+            Log.warn("tile unknown kind=\(kind)")
+            return
+        }
+
+        let ok = AX.setFocusedWindowFrame(target)
+        Log.info("tile \(kind.lowercased()) rect=\(Int(target.minX)),\(Int(target.minY)) \(Int(target.width))x\(Int(target.height)) ok=\(ok ? 1 : 0)")
+    }
+
+    private static func screenContaining(_ axFrame: CGRect) -> NSScreen? {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+        let primaryHeight = screens[0].frame.height
+        let center = CGPoint(x: axFrame.midX, y: axFrame.midY)
+
+        // 先找包含窗口中心的屏幕，找不到就取重叠面积最大的
+        for screen in screens where axFrame(of: screen).contains(center) {
+            return screen
+        }
+        var best: NSScreen?
+        var bestArea: CGFloat = 0
+        for screen in screens {
+            let intersection = axFrame(of: screen).intersection(axFrame)
+            let area = intersection.isNull ? 0 : intersection.width * intersection.height
+            if area > bestArea {
+                bestArea = area
+                best = screen
+            }
+        }
+        _ = primaryHeight
+        return best ?? screens[0]
+    }
+
+    private static func axFrame(of screen: NSScreen) -> CGRect {
+        flipped(screen.frame)
+    }
+
+    private static func axVisibleFrame(of screen: NSScreen) -> CGRect {
+        flipped(screen.visibleFrame)
+    }
+
+    /// NSScreen 用左下原点，AX 用左上原点，转换需要主屏高度。
+    private static func flipped(_ rect: CGRect) -> CGRect {
+        let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
+        return CGRect(
+            x: rect.minX,
+            y: primaryHeight - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
     static func bind(_ index: Int) {
         guard let app = NSWorkspace.shared.frontmostApplication,
               let bundleID = app.bundleIdentifier else {

@@ -23,6 +23,35 @@ enum AX {
         return elementAttribute(app, kAXFocusedWindowAttribute as CFString)
     }
 
+    /// 聚焦窗口的 frame，AX 坐标系（原点在主屏左上，y 向下）。
+    static func focusedWindowFrame() -> CGRect? {
+        guard let window = focusedWindow() else { return nil }
+        guard let position = pointAttribute(window, kAXPositionAttribute as CFString),
+              let size = sizeAttribute(window, kAXSizeAttribute as CFString) else {
+            return nil
+        }
+        return CGRect(origin: position, size: size)
+    }
+
+    /// 设置聚焦窗口的位置和大小。先设 size 再设 position，最后再补一次 size：
+    /// 多数 App 会把超出屏幕的窗口夹回可视区，只设一次经常只生效一半。
+    @discardableResult
+    static func setFocusedWindowFrame(_ rect: CGRect) -> Bool {
+        guard let window = focusedWindow() else { return false }
+        var size = rect.size
+        var origin = rect.origin
+        guard let sizeValue = AXValueCreate(.cgSize, &size),
+              let originValue = AXValueCreate(.cgPoint, &origin) else { return false }
+        _ = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        _ = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
+        let error = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        if error != .success {
+            report(error)
+            return false
+        }
+        return true
+    }
+
     @discardableResult
     static func minimizeFocusedWindow() -> Bool {
         let systemWide = AXUIElementCreateSystemWide()
@@ -175,6 +204,24 @@ enum AX {
         pasteboard.setString(prefix + text + suffix, forType: .string)
         KeyPost.key(9, flags: .maskCommand)
         return true
+    }
+
+    private static func pointAttribute(_ element: AXUIElement, _ name: CFString) -> CGPoint? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
+              let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var point = CGPoint.zero
+        guard AXValueGetValue(raw as! AXValue, .cgPoint, &point) else { return nil }
+        return point
+    }
+
+    private static func sizeAttribute(_ element: AXUIElement, _ name: CFString) -> CGSize? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
+              let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+        var size = CGSize.zero
+        guard AXValueGetValue(raw as! AXValue, .cgSize, &size) else { return nil }
+        return size
     }
 
     private static func elementAttribute(_ element: AXUIElement, _ name: CFString) -> AXUIElement? {

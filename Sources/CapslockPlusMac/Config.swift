@@ -43,6 +43,8 @@ enum Action: Equatable {
     case selectCurrentWord
     case wrapSelection(String)
     case transform(String)
+    case tile(String)
+    case insertDate(String)
 
     case cut
     case copy
@@ -103,6 +105,8 @@ enum Action: Equatable {
         case .selectCurrentWord: return "selectCurrentWord"
         case .wrapSelection(let kind): return "wrapSelection(\(kind))"
         case .transform(let kind): return "transform(\(kind))"
+        case .tile(let kind): return "tile(\(kind))"
+        case .insertDate(let format): return "insertdate(\(format))"
         case .cut: return "cut"
         case .copy: return "copy"
         case .paste: return "paste"
@@ -169,6 +173,9 @@ enum Action: Equatable {
         "extraclipboard.paste": .extraPaste,
         "minimizewindow": .minimizeWindow,
         "reloadconfig": .reloadConfig,
+        "insertdate": .insertDate("yyyy-MM-dd"),
+        "inserttime": .insertDate("HH:mm"),
+        "insertdatetime": .insertDate("yyyy-MM-dd HH:mm"),
         "switchinputsource": .switchInputSource
     ]
 
@@ -200,6 +207,13 @@ enum Action: Equatable {
         }
         if let kind = argument(of: lower, prefix: "transform("), !kind.isEmpty {
             return .transform(kind)
+        }
+        if let kind = argument(of: lower, prefix: "tile("), !kind.isEmpty {
+            return .tile(kind)
+        }
+        // 日期格式要保留原始大小写（yyyy-MM-dd HH:mm 里的 HH 不能变 hh），所以用 trimmed 取参数
+        if let format = argument(of: trimmed, prefix: "insertdate("), !format.isEmpty {
+            return .insertDate(format)
         }
         if let index = integerArgument(of: lower, prefix: "window.bind(") {
             return .windowBind(index)
