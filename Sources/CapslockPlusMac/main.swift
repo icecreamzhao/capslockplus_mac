@@ -40,12 +40,14 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
 
 func runAXProbe(bundleID: String) -> Int32 {
     var lines: [String] = []
+    lines.append("trusted=\(AXIsProcessTrusted() ? 1 : 0)")
     guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+        lines.append("app not running")
+        try? lines.joined(separator: "\n").write(toFile: "/tmp/axprobe.txt", atomically: true, encoding: .utf8)
         return 2
     }
     let ax = AXUIElementCreateApplication(app.processIdentifier)
-    let enhanced = AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
-    lines.append("enhancedUI status=\(enhanced.rawValue)")
+    lines.append("enhancedUI=\(AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue).rawValue)")
 
     func elementAttr(_ el: AXUIElement, _ name: CFString) -> AXUIElement? {
         var v: CFTypeRef?
@@ -53,42 +55,58 @@ func runAXProbe(bundleID: String) -> Int32 {
               CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
         return (raw as! AXUIElement)
     }
-
-    guard let focused = elementAttr(ax, kAXFocusedUIElementAttribute as CFString) else {
-        lines.append("focused=nil")
-        FileManager.default.createFile(atPath: "/tmp/axprobe.txt", contents: lines.joined(separator: "\n").data(using: .utf8))
-        return 1
-    }
-
-    var names: CFArray?
-    AXUIElementCopyAttributeNames(focused, &names)
-    lines.append("attributes=\((names as? [String]) ?? [])")
-
-    func raw(_ name: CFString) -> String {
+    func elementArray(_ el: AXUIElement, _ name: CFString) -> [AXUIElement] {
         var v: CFTypeRef?
-        let e = AXUIElementCopyAttributeValue(focused, name, &v)
-        if e != .success { return "err=\(e.rawValue)" }
-        guard let value = v else { return "nil" }
-        return "\(value)"
+        guard AXUIElementCopyAttributeValue(el, name, &v) == .success, let raw = v,
+              CFGetTypeID(raw) == CFArrayGetTypeID() else { return [] }
+        return (raw as? [AXUIElement]) ?? []
     }
-    lines.append("AXSelectedText=" + raw(kAXSelectedTextAttribute as CFString))
-    lines.append("AXSelectedTextRange=" + raw(kAXSelectedTextRangeAttribute as CFString))
-    lines.append("AXSelectedTextMarkerRange=" + raw("AXSelectedTextMarkerRange" as CFString))
-    lines.append("AXValue-len=" + String(describing: (raw(kAXValueAttribute as CFString)).count))
-
-    // WebKit: 用文本标记范围取选中文字
-    var markerRaw: CFTypeRef?
-    if AXUIElementCopyAttributeValue(focused, "AXSelectedTextMarkerRange" as CFString, &markerRaw) == .success,
-       let marker = markerRaw {
-        var text: CFTypeRef?
-        let st = AXUIElementCopyParameterizedAttributeValue(
-            focused, "AXStringForTextMarkerRange" as CFString, marker, &text)
-        lines.append("stringForTextMarkerRange status=\(st.rawValue) value=\(String(describing: text))")
-    } else {
-        lines.append("stringForTextMarkerRange: no marker range")
+    func strAttr(_ el: AXUIElement, _ name: CFString) -> String? {
+        var v: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, name, &v) == .success else { return nil }
+        return v as? String
     }
 
-    FileManager.default.createFile(atPath: "/tmp/axprobe.txt", contents: lines.joined(separator: "\n").data(using: .utf8))
+    // 不依赖焦点：把 Safari 的窗口树走一遍，找任何带选区的元素
+    var scanned = 0
+    var hits: [String] = []
+    func walk(_ el: AXUIElement, _ depth: Int) {
+        guard scanned < 2000, depth <= 8 else { return }
+        scanned += 1
+        let role = strAttr(el, kAXRoleAttribute as CFString) ?? "?"
+        if role == "AXWebArea" || role == "AXStaticText" || role == "AXTextField" || role == "AXTextArea" {
+            var v: CFTypeRef?
+            let e = AXUIElementCopyAttributeValue(el, kAXSelectedTextAttribute as CFString, &v)
+            let text = (v as? String) ?? ""
+            var markerInfo = ""
+            var mr: CFTypeRef?
+            if AXUIElementCopyAttributeValue(el, "AXSelectedTextMarkerRange" as CFString, &mr) == .success, let marker = mr {
+                var out: CFTypeRef?
+                let st = AXUIElementCopyParameterizedAttributeValue(el, "AXStringForTextMarkerRange" as CFString, marker, &out)
+                markerInfo = " markerStatus=\(st.rawValue) markerText=\((out as? String) ?? "-")"
+            } else {
+                markerInfo = " marker=none"
+            }
+            if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                hits.append("HIT role=\(role) selected=\(text.prefix(40))")
+            } else if role == "AXWebArea" {
+                var names: CFArray?
+                AXUIElementCopyAttributeNames(el, &names)
+                hits.append("WEBAREA empty selErr=\(e.rawValue)\(markerInfo) attrs=\((names as? [String]) ?? [])")
+            }
+        }
+        for child in elementArray(el, kAXChildrenAttribute as CFString) {
+            walk(child, depth + 1)
+        }
+    }
+    for window in elementArray(ax, kAXWindowsAttribute as CFString) {
+        let title = strAttr(window, kAXTitleAttribute as CFString) ?? "-"
+        lines.append("window: \(title)")
+        walk(window, 0)
+    }
+    lines.append("scanned=\(scanned)")
+    lines.append(contentsOf: hits.prefix(6))
+    try? lines.joined(separator: "\n").write(toFile: "/tmp/axprobe.txt", atomically: true, encoding: .utf8)
     return 0
 }
 
