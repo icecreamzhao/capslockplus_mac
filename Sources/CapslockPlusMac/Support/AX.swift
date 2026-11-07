@@ -101,13 +101,20 @@ enum AX {
         var pid: pid_t = 0
         AXUIElementGetPid(app, &pid)
         guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
+        return deepScan(inApp: app)
+    }
+
+    /// 遍历某个 App 的窗口树找选区（Safari 的 AXWebArea 常常只有 marker 范围里有文本）。
+    private static func deepScan(inApp app: AXUIElement) -> String? {
+        var pid: pid_t = 0
+        AXUIElementGetPid(app, &pid)
 
         let front = NSWorkspace.shared.frontmostApplication
         Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0) front=\(front?.bundleIdentifier ?? "?") frontpid=\(front?.processIdentifier ?? 0)")
         var visited = 0
         var found: String?
         func scan(_ element: AXUIElement, depth: Int) {
-            guard found == nil, visited < 300, depth <= 5 else { return }
+            guard found == nil, visited < 1500, depth <= 8 else { return }
             visited += 1
             var value: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
@@ -129,7 +136,11 @@ enum AX {
             }
         }
 
-        if let window = elementAttribute(app, kAXFocusedWindowAttribute as CFString) {
+        // 先看焦点元素本身（Safari 的选区就在 AXWebArea 上），再扫窗口树
+        if let focused = elementAttribute(app, kAXFocusedUIElementAttribute as CFString) {
+            scan(focused, depth: 0)
+        }
+        if found == nil, let window = elementAttribute(app, kAXFocusedWindowAttribute as CFString) {
             scan(window, depth: 0)
         }
         if found == nil, let windows = elementArrayAttribute(app, kAXWindowsAttribute as CFString) {
@@ -232,6 +243,13 @@ enum AX {
     /// 指定 pid 的 App 读选区（探针用；也方便将来自定义"始终读取某个 App"）。
     static func selectedText(forPID pid: pid_t) -> String? {
         selectedText(inApp: AXUIElementCreateApplication(pid))
+    }
+
+    /// 同上的深挖版本。
+    static func selectedTextDeep(forPID pid: pid_t) -> String? {
+        let app = AXUIElementCreateApplication(pid)
+        if let text = selectedText(inApp: app) { return text }
+        return deepScan(inApp: app)
     }
 
     private static func selectedText(inApp app: AXUIElement) -> String? {

@@ -105,7 +105,7 @@ func runAXProbe(bundleID: String) -> Int32 {
         walk(window, 0)
     }
     lines.append("scanned=\(scanned)")
-    let readerResult = AX.selectedText(forPID: app.processIdentifier)
+    let readerResult = AX.selectedTextDeep(forPID: app.processIdentifier)
     lines.append("readerResult=\(readerResult ?? "nil")")
     lines.append(contentsOf: hits.prefix(6))
     try? lines.joined(separator: "\n").write(toFile: "/tmp/axprobe.txt", atomically: true, encoding: .utf8)
