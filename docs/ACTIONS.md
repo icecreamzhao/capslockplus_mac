@@ -120,10 +120,33 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 - 查词顺序：本地词库（牛津高阶英汉 → 朗文）→ 都没命中才走在线有道
 - 本地词库：`~/.config/capslock-plus-mac/dict.sqlite`（48MB，10.4 万词条），由 `scripts/mdx-to-sqlite.py` 生成
 - 读音：朗文 mdd 里抽出的 mp3，`~/.config/capslock-plus-mac/audio`（9.5 万个，505MB），由 `scripts/mdd-to-audio.py` 生成；牛津那个包 mdd 里只有图片，没有音频
-- 数据源：有道词典 `https://dict.youdao.com/jsonapi`（不需要 API key），英↔中双向
+- 在线数据源：有道智云 NMT（有凭据时）→ 公开 `https://dict.youdao.com/jsonapi` 兜底，英↔中双向
 - 选中超过 60 字符时拒绝翻译（避免整篇文档打过去）
-- 浮层不抢焦点，点窗口外 / 再按一次 / 12 秒后自动消失
 - 可在 keymap.json 顶层覆盖：`"translateEndpoint": "…"`、`"translateTimeoutMs": 4000`、`"panelAutoHideMs": 0`（0 = 不自动关，默认；>0 按毫秒自动关）
+
+### 读选区的三条路径
+
+不同 App 暴露选区的方式不一样，`translate` 按顺序尝试：
+
+| 顺序 | 路径 | 适用 |
+|---|---|---|
+| 1 | `AXSelectedText` | 原生 App（Terminal、TextEdit、Preview、大多数 Cocoa 应用） |
+| 2 | `AXSelectedTextMarkerRange` + `AXStringForTextMarkerRange` | Safari / WebKit（`AXSelectedText` 返回 `-25212`） |
+| 3 | 广度优先遍历窗口树找 `AXWebArea`/`AXTextArea`（400ms 预算） | Firefox（焦点元素退化成 `AXWindow` 时） |
+
+Chromium/Electron（VS Code、Chrome、Slack…）默认不建辅助功能树，读取前要先给目标 App 设 `AXManualAccessibility = true`，设完还要等它异步建树——代码里按 pid 只设一次。
+
+### 兜底：白名单 App 用剪贴板
+
+Qt、GPU 终端、部分国产客户端（微信等）根本不暴露选区。这类 App 可以登记进白名单，AX 全部失败后走「模拟 Cmd+C → 读剪贴板 → 原样写回」：
+
+```json
+"clipboardFallbackApps": ["com.microsoft.Excel", "org.inkscape.Inkscape"]
+```
+
+- 只有白名单里的 App 才会动剪贴板；其他 App 读不到就正常提示"没有选中文字"
+- 剪贴板内容会被完整快照并还原（多 item、多类型都还原），但**剪贴板历史工具（Clipy 等）仍会记下这一次复制**
+- 日志：`clipboard fallback start/ok/failed app=… len=…`
 
 ## 插入日期时间
 

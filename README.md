@@ -121,8 +121,31 @@ chmod 600 ~/.config/capslock-plus-mac/youdao.json
 
 ### 浮层行为
 
-- 默认**不自动关闭**，也不因点击外部关闭；再按 `caps+t`（浮层内无选区时）或 `Esc` 关闭
+- 默认**不自动关闭**，也不因点击外部关闭；再按 `caps+t`（浮层内无选区时）、点 ✕ 或 `Esc` 关闭
 - 想恢复自动关闭：`keymap.json` 顶层加 `"panelAutoHideMs": 12000`（毫秒，0 表示不自动关）
+
+### 读选区兼容性
+
+`caps+t` 读选中文字，按 App 家族走不同路径：
+
+| App 类型 | 例子 | 处理 |
+|---|---|---|
+| 原生 AppKit | Terminal、TextEdit、Preview、Finder | `AXSelectedText`，直接可用 |
+| WebKit | Safari、Safari WebView | 用 `AXSelectedTextMarkerRange` + `AXStringForTextMarkerRange` |
+| Gecko | Firefox、Thunderbird | 焦点元素退化成窗口，靠广度优先遍历找 `AXWebArea`（400ms 预算） |
+| Chromium / Electron | VS Code、Chrome、Slack、Notion、Discord、Cursor | 先设 `AXManualAccessibility = true` 等它建树，首次会慢半拍 |
+| JVM | IntelliJ 全家桶、Android Studio、DBeaver | 需在 IDE 内勾选 "Support screen readers" 才暴露文本节点 |
+| Qt / GPU 终端 / 远程桌面 | Telegram、qBittorrent、Alacritty、RDP | AX 无解，只能进剪贴板白名单 |
+
+剪贴板兜底（白名单，AX 失败后才启用）：
+
+```json
+"clipboardFallbackApps": ["com.microsoft.Excel", "org.inkscape.Inkscape"]
+```
+
+- 机制：快照剪贴板 → 模拟 Cmd+C → 读 → 原样还原（多 item 也还原）
+- 副作用：Clipy 这类剪贴板历史工具会记录这一次复制
+- 日志：`clipboard fallback ok app=… len=…` / `translate source=clipboard`
 
 - `dict.sqlite` 48MB / 10.4 万词条；`audio` 505MB / 9.5 万 mp3
 - 牛津包 `mdd` 只有 1,388 个图片，没有音频；读音全部来自朗文
