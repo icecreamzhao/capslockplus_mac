@@ -86,6 +86,7 @@ func runTransformSelfTest() -> Int32 {
 }
 
 if CommandLine.arguments.contains("--probe-tiling") {
+    print("ax_trusted=\(AX.isTrusted ? 1 : 0) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")")
     for line in WindowActions.describeTiling() {
         print(line)
     }
