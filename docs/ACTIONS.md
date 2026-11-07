@@ -101,6 +101,17 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 
 多显示器按窗口中心落在哪块屏幕决定平铺目标；全屏（Full Screen Space）窗口无法移动，会记 `tile ... ok=0`。
 
+## 翻译
+
+| 写法 | 作用 |
+|---|---|
+| `translate` | 翻译选中的单词/短语，浮层显示音标 + 释义 + 网络释义；再按一次收起 |
+
+- 数据源：有道词典 `https://dict.youdao.com/jsonapi`（不需要 API key），英↔中双向
+- 选中超过 60 字符时拒绝翻译（避免整篇文档打过去）
+- 浮层不抢焦点，点窗口外 / 再按一次 / 12 秒后自动消失
+- 可在 keymap.json 顶层覆盖：`"translateEndpoint": "…"`、`"translateTimeoutMs": 4000`
+
 ## 插入日期时间
 
 | 写法 | 作用 |
