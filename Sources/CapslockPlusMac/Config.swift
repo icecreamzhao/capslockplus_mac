@@ -61,6 +61,7 @@ enum Action: Equatable {
     case sendKeys(String)
     case typeText(String)
     indirect case repeated(Action, Int)
+    case translate
     case reloadConfig
     case switchInputSource
 
@@ -121,6 +122,7 @@ enum Action: Equatable {
         case .sendKeys(let spec): return "send(\(spec))"
         case .typeText(let text): return "type(\(text))"
         case .repeated(let base, let count): return "\(base.name)(\(count))"
+        case .translate: return "translate"
         case .reloadConfig: return "reloadConfig"
         case .switchInputSource: return "switchInputSource"
         }
@@ -173,6 +175,7 @@ enum Action: Equatable {
         "extraclipboard.paste": .extraPaste,
         "minimizewindow": .minimizeWindow,
         "reloadconfig": .reloadConfig,
+        "translate": .translate,
         "insertdate": .insertDate("yyyy-MM-dd"),
         "inserttime": .insertDate("HH:mm"),
         "insertdatetime": .insertDate("yyyy-MM-dd HH:mm"),

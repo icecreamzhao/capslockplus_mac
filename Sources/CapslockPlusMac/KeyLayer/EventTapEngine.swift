@@ -189,6 +189,8 @@ enum ActionRunner {
             ClipboardActions.extraCopy()
         case .extraPaste:
             ClipboardActions.extraPaste()
+        case .translate:
+            TranslateActions.translateSelection()
         case .tile(let kind):
             WindowActions.tile(kind)
         case .windowBind(let index):
