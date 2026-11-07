@@ -27,13 +27,16 @@ enum TranslateActions {
             perform(text)
             return
         }
-        guard attempt < 2 else {
+        guard attempt < 4 else {
             Log.warn("translate failed reason=no-selection attempts=\(attempt + 1)")
             TranslatePanel.shared.showHint("没有选中文字。先用鼠标选中一个单词或短语，再按 caps+t。")
             return
         }
         // 不在 tap 里 sleep，交给主队列稍后重试
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+        // 退避：150 / 250 / 400 / 600ms，累计约 1.4s —— 双击选词后浏览器发布选区偶尔比这还慢
+        let delays: [Double] = [0.15, 0.25, 0.40, 0.60]
+        let delay = delays[min(attempt, delays.count - 1)]
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             attemptRead(attempt: attempt + 1)
         }
     }

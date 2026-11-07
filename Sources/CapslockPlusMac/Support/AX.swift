@@ -142,6 +142,33 @@ enum AX {
         return found
     }
 
+    /// 用「选区范围 + 按范围取文本」兜底，Safari/WebKit 走这条路能拿到选中的字。
+    private static func selectionViaRange(_ element: AXUIElement) -> String? {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &raw) == .success,
+              let value = raw, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        var range = CFRange()
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range), range.length > 0 else { return nil }
+
+        var rangeValue = range
+        guard let axRange = AXValueCreate(.cfRange, &rangeValue) else { return nil }
+        var text: CFTypeRef?
+        let status = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            axRange,
+            &text
+        )
+        guard status == .success, let string = text as? String else {
+            Log.warn("axSelection range-only len=\(range.length) but stringForRange failed=\(status.rawValue)")
+            return nil
+        }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        Log.info("axSelection via-range len=\(trimmed.count)")
+        return trimmed
+    }
+
     private static func readSelection(_ element: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
@@ -186,6 +213,11 @@ enum AX {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value)
         guard error == .success else {
+            // Safari/WebKit 常常对 kAXSelectedText 返回 kAXErrorNoValue(-25212)，
+            // 但选区范围还在：改用 kAXSelectedTextRange + kAXStringForRange 取原文。
+            if let viaRange = selectionViaRange(element) {
+                return viaRange
+            }
             Log.warn("axSelection error app=\(bundle) pid=\(pid) role=\(role) source=\(focusedUI == nil ? "window" : "uiElement") code=\(error.rawValue)")
             report(error)
             return nil
