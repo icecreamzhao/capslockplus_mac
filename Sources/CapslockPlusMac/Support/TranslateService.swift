@@ -30,7 +30,15 @@ enum TranslateService {
         Config.shared.translateEndpoint
     }
 
+    /// UI 路径：结果回到主线程。
     static func fetch(_ rawQuery: String, completion: @escaping (Translation?, String?) -> Void) {
+        fetchRaw(rawQuery) { translation, message in
+            DispatchQueue.main.async { completion(translation, message) }
+        }
+    }
+
+    /// 不切线程的版本（CLI 探针用：主线程会被信号量阻塞，切主线程会死锁）。
+    static func fetchRaw(_ rawQuery: String, completion: @escaping (Translation?, String?) -> Void) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             completion(nil, "没有选中文字")
@@ -50,20 +58,18 @@ enum TranslateService {
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
             if let error = error {
-                DispatchQueue.main.async { completion(nil, "网络错误：\(error.localizedDescription)") }
+                completion(nil, "网络错误：\(error.localizedDescription)")
                 return
             }
             guard let data = data, !data.isEmpty else {
-                DispatchQueue.main.async { completion(nil, "没有返回内容") }
+                completion(nil, "没有返回内容")
                 return
             }
             let result = parse(data: data, query: query)
-            DispatchQueue.main.async {
-                if result.isEmpty {
-                    completion(nil, "没查到释义")
-                } else {
-                    completion(result, nil)
-                }
+            if result.isEmpty {
+                completion(nil, "没查到释义")
+            } else {
+                completion(result, nil)
             }
         }
         task.resume()

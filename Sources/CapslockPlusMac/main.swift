@@ -137,7 +137,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--translate-test"),
    index + 1 < CommandLine.arguments.count {
     let query = CommandLine.arguments[index + 1]
     let semaphore = DispatchSemaphore(value: 0)
-    TranslateService.fetch(query) { translation, message in
+    TranslateService.fetchRaw(query) { translation, message in
         if let translation = translation {
             print("query=\(translation.query)")
             print("phonetic=\(translation.phonetic ?? "-")")
