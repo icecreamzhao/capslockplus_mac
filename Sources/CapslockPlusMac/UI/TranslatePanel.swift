@@ -45,6 +45,7 @@ final class TranslatePanel: NSPanel {
         titleLabel.font = NSFont.systemFont(ofSize: 16, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.isSelectable = true
 
         subtitleLabel.font = NSFont.systemFont(ofSize: 11)
         subtitleLabel.textColor = .tertiaryLabelColor
@@ -72,7 +73,8 @@ final class TranslatePanel: NSPanel {
         contentView = effectView
     }
 
-    override var canBecomeKey: Bool { false }
+    // 需要能划选文字，所以允许成为 key；.nonactivatingPanel 保证不激活整个 App、不切 Space
+    override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
     var isShowing: Bool { isShown }
@@ -80,12 +82,15 @@ final class TranslatePanel: NSPanel {
     // MARK: - 对外接口
 
     func showPending(query: String) {
-        render(title: query, subtitle: "查询中…", body: "")
+        render(title: query, subtitle: "查询中…", body: "", keepPosition: updatingInPlace)
     }
 
     func show(result: Translation) {
-        render(title: result.query, subtitle: "在线 · " + result.engine, body: result.displayText)
+        render(title: result.query, subtitle: "在线 · " + result.engine, body: result.displayText,
+               keepPosition: updatingInPlace)
     }
+
+    private var updatingInPlace: Bool { isShown }
 
     func show(entry: DictEntry, audio: String?) {
         var subtitle = entry.sourceLabel
@@ -98,11 +103,22 @@ final class TranslatePanel: NSPanel {
             }
             return line.replacingOccurrences(of: "\t", with: "  ")
         }
-        render(title: entry.headword, subtitle: subtitle, body: lines.joined(separator: "\n"), audio: audio)
+        render(title: entry.headword, subtitle: subtitle, body: lines.joined(separator: "\n"),
+               audio: audio, keepPosition: updatingInPlace)
     }
 
     func show(error: String) {
         render(title: "没有结果", subtitle: "", body: error)
+    }
+
+    /// 浮层内部用鼠标划选的文字（NSTextField 的选区在 field editor 里）。
+    var selectionText: String? {
+        guard let editor = firstResponder as? NSTextView else { return nil }
+        let range = editor.selectedRange()
+        guard range.length > 0, range.location != NSNotFound else { return nil }
+        let text = (editor.string as NSString).substring(with: range)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     func dismiss() {
@@ -120,7 +136,7 @@ final class TranslatePanel: NSPanel {
 
     // MARK: - 布局
 
-    private func render(title: String, subtitle: String, body: String, audio: String? = nil) {
+    private func render(title: String, subtitle: String, body: String, audio: String? = nil, keepPosition: Bool = false) {
         audioPath = audio
         titleLabel.stringValue = title
         subtitleLabel.stringValue = subtitle
@@ -152,7 +168,12 @@ final class TranslatePanel: NSPanel {
             bodyLabel.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
         }
 
-        positionNearCursor()
+        let previousOrigin = frame.origin
+        if !keepPosition || !isShown {
+            positionNearCursor()
+        } else {
+            setFrameOrigin(previousOrigin)
+        }
         if !isShown {
             orderFrontRegardless()
             isShown = true
@@ -202,6 +223,15 @@ final class TranslatePanel: NSPanel {
             if self.frame.contains(NSEvent.mouseLocation) { return }
             self.dismiss()
         }
+    }
+
+    /// 自检用：程序化全选正文，然后按正常路径读选区。验证 field editor 这条路通不通。
+    func debugSelectAllBody() -> String? {
+        makeKeyAndOrderFront(nil)
+        makeFirstResponder(bodyLabel)
+        guard let editor = bodyLabel.currentEditor() else { return nil }
+        editor.selectedRange = NSRange(location: 0, length: (bodyLabel.stringValue as NSString).length)
+        return selectionText
     }
 
     @objc private func playAudio() {

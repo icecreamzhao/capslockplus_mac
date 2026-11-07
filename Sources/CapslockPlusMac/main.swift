@@ -2,6 +2,21 @@ import Foundation
 import AppKit
 import AVFoundation
 
+final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let entry = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
+                              body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil)
+        TranslatePanel.shared.show(entry: entry, audio: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            let expected = "verb  打招呼\nnoun  你好"
+            let picked = TranslatePanel.shared.debugSelectAllBody()
+            print("expected=\(expected.debugDescription)")
+            print("picked=\(picked?.debugDescription ?? "nil")")
+            exit(picked == expected ? 0 : 1)
+        }
+    }
+}
+
 func runSelfTest() -> Int32 {
     var failures: [String] = []
     var seen = Set<KeyCombo>()
@@ -132,6 +147,13 @@ func runTilingSelfTest() -> Int32 {
     }
     print("tiling selftest FAILED: \(failures)")
     return 1
+}
+
+if CommandLine.arguments.contains("--panel-selftest") {
+    let delegate = PanelSelfTestDelegate()
+    NSApplication.shared.delegate = delegate
+    NSApplication.shared.run()
+    exit(1)
 }
 
 if let index = CommandLine.arguments.firstIndex(of: "--audio-test"),

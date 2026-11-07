@@ -1,10 +1,16 @@
 import Foundation
 
 enum TranslateActions {
-    /// 选中文字 → 浮层显示释义。再按一次收起。
-    /// 顺序：本地词库（牛津英汉 → 朗文）命中就离线出结果，未命中才走在线翻译。
+    /// 选中文字 → 浮层显示释义。
+    /// 优先级：浮层内部划选的词 > 当前 App 的选中文字。
+    /// 浮层已开着且其中没有选区时，再按一次收起。
     static func translateSelection() {
         if TranslatePanel.shared.isShowing {
+            if let picked = TranslatePanel.shared.selectionText {
+                Log.info("translate source=panel query=\(picked)")
+                perform(picked)
+                return
+            }
             TranslatePanel.shared.dismiss()
             Log.info("translate toggle off")
             return
@@ -14,7 +20,13 @@ enum TranslateActions {
             Log.warn("translate failed reason=no-selection")
             return
         }
-        let query = selected.trimmingCharacters(in: .whitespacesAndNewlines)
+        Log.info("translate source=ax")
+        perform(selected)
+    }
+
+    /// 查词主流程：本地词库优先，未命中走在线。
+    private static func perform(_ raw: String) {
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             Log.warn("translate failed reason=empty-selection")
             return
