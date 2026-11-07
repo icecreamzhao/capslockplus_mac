@@ -1,15 +1,15 @@
 import Foundation
 import AppKit
 
-/// 查词浮层：无边框、不抢焦点、贴鼠标位置。
-/// 关闭方式：再按一次热键 / 点浮层外 / 12 秒后自动消失。
+/// 查词浮层：无边框、不激活 App、贴鼠标位置。
+/// 正文用 NSTextView，可以划选单词、复制；关闭方式：再按一次热键 / 点浮层外 / 12 秒后自动消失。
 final class TranslatePanel: NSPanel {
     static let shared = TranslatePanel()
 
     private let effectView = NSVisualEffectView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
-    private let bodyLabel = NSTextField(labelWithString: "")
+    private let bodyTextView = NSTextView()
     private let speakerButton = NSButton()
     private var dismissTimer: Timer?
     private var clickMonitor: Any?
@@ -18,6 +18,7 @@ final class TranslatePanel: NSPanel {
 
     private let width: CGFloat = 380
     private let padding: CGFloat = 14
+    private let bodyFont = NSFont.systemFont(ofSize: 13)
 
     private init() {
         super.init(
@@ -51,11 +52,18 @@ final class TranslatePanel: NSPanel {
         subtitleLabel.textColor = .tertiaryLabelColor
         subtitleLabel.lineBreakMode = .byTruncatingTail
 
-        bodyLabel.font = NSFont.systemFont(ofSize: 13)
-        bodyLabel.textColor = .secondaryLabelColor
-        bodyLabel.maximumNumberOfLines = 0
-        bodyLabel.lineBreakMode = .byWordWrapping
-        bodyLabel.isSelectable = true
+        bodyTextView.isEditable = false
+        bodyTextView.isSelectable = true
+        bodyTextView.drawsBackground = false
+        bodyTextView.isRichText = false
+        bodyTextView.font = bodyFont
+        bodyTextView.textColor = .secondaryLabelColor
+        bodyTextView.textContainerInset = NSSize(width: 0, height: 0)
+        bodyTextView.isVerticallyResizable = true
+        bodyTextView.isHorizontallyResizable = false
+        bodyTextView.textContainer?.lineFragmentPadding = 0
+        bodyTextView.textContainer?.widthTracksTextView = true
+        bodyTextView.textContainer?.heightTracksTextView = false
 
         speakerButton.isBordered = false
         speakerButton.bezelStyle = .inline
@@ -68,7 +76,7 @@ final class TranslatePanel: NSPanel {
 
         effectView.addSubview(titleLabel)
         effectView.addSubview(subtitleLabel)
-        effectView.addSubview(bodyLabel)
+        effectView.addSubview(bodyTextView)
         effectView.addSubview(speakerButton)
         contentView = effectView
     }
@@ -111,12 +119,11 @@ final class TranslatePanel: NSPanel {
         render(title: "没有结果", subtitle: "", body: error)
     }
 
-    /// 浮层内部用鼠标划选的文字（NSTextField 的选区在 field editor 里）。
+    /// 浮层正文里划选的文字；没有选区返回 nil。
     var selectionText: String? {
-        guard let editor = firstResponder as? NSTextView else { return nil }
-        let range = editor.selectedRange()
-        guard range.length > 0, range.location != NSNotFound else { return nil }
-        let text = (editor.string as NSString).substring(with: range)
+        guard let range = bodyTextView.selectedRanges.first?.rangeValue,
+              range.length > 0, range.location != NSNotFound else { return nil }
+        let text = (bodyTextView.string as NSString).substring(with: range)
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
@@ -129,6 +136,8 @@ final class TranslatePanel: NSPanel {
             clickMonitor = nil
         }
         guard isShown else { return }
+        // 划选状态留着没意义，下次开是新的词
+        bodyTextView.setSelectedRange(NSRange(location: 0, length: 0))
         orderOut(nil)
         isShown = false
         Log.info("panel hidden")
@@ -140,11 +149,12 @@ final class TranslatePanel: NSPanel {
         audioPath = audio
         titleLabel.stringValue = title
         subtitleLabel.stringValue = subtitle
-        bodyLabel.stringValue = body
+        bodyTextView.string = body
+        bodyTextView.setSelectedRange(NSRange(location: 0, length: 0))
         speakerButton.isHidden = (audio == nil)
 
         let textWidth = width - padding * 2
-        let bodyHeight = body.isEmpty ? 0 : measure(body, font: bodyLabel.font!, width: textWidth)
+        let bodyHeight = body.isEmpty ? 0 : measure(body, font: bodyFont, width: textWidth)
         let titleHeight: CGFloat = 21
         let subtitleHeight: CGFloat = subtitle.isEmpty ? 0 : 14
         let spacing: CGFloat = (body.isEmpty || subtitleHeight == 0) ? 0 : 6
@@ -165,7 +175,8 @@ final class TranslatePanel: NSPanel {
             top -= subtitleHeight + spacing
         }
         if bodyHeight > 0 {
-            bodyLabel.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
+            bodyTextView.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
+            bodyTextView.textContainer?.containerSize = NSSize(width: textWidth, height: .greatestFiniteMagnitude)
         }
 
         let previousOrigin = frame.origin
@@ -225,17 +236,14 @@ final class TranslatePanel: NSPanel {
         }
     }
 
-    /// 自检用：程序化全选正文，然后按正常路径读选区。验证 field editor 这条路通不通。
+    /// 自检用：程序化全选正文，再按正常路径读选区，验证 NSTextView 这条路通。
     func debugSelectAllBody() -> String {
         makeKeyAndOrderFront(nil)
-        let became = makeFirstResponder(bodyLabel)
-        var report = "key=\(isKeyWindow ? 1 : 0) firstResponder=\(String(describing: firstResponder.map { type(of: $0) }))"
-        report += " became=\(became) isSelectable=\(bodyLabel.isSelectable) isEditable=\(bodyLabel.isEditable)"
-        guard let editor = bodyLabel.currentEditor() else {
-            return report + " editor=nil"
-        }
-        editor.selectedRange = NSRange(location: 0, length: (bodyLabel.stringValue as NSString).length)
-        report += " editor=\(type(of: editor)) range=\(editor.selectedRange)"
+        let became = makeFirstResponder(bodyTextView)
+        var report = "key=\(isKeyWindow ? 1 : 0) became=\(became)"
+        let length = (bodyTextView.string as NSString).length
+        bodyTextView.setSelectedRange(NSRange(location: 0, length: length))
+        report += " firstResponder=\(String(describing: firstResponder.map { type(of: $0) }))"
         report += " picked=\(String(describing: selectionText))"
         return report
     }

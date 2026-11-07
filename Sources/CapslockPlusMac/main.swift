@@ -12,7 +12,7 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
             let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
             print(report)
-            exit(report.contains("picked=\u{1B}") ? 1 : 0)
+            exit(report.contains("picked=\(expected)") ? 0 : 1)
         }
     }
 }
