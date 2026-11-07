@@ -40,6 +40,12 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
 
 func runAXProbe(bundleID: String) -> Int32 {
     var lines: [String] = []
+    let outPath = "/tmp/axprobe.txt"
+    func flush() {
+        try? lines.joined(separator: "\n").write(toFile: outPath, atomically: true, encoding: .utf8)
+    }
+    lines.append("started pid=\(ProcessInfo.processInfo.processIdentifier) target=\(bundleID)")
+    flush()
     lines.append("trusted=\(AXIsProcessTrusted() ? 1 : 0)")
     guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
         lines.append("app not running")
@@ -103,11 +109,14 @@ func runAXProbe(bundleID: String) -> Int32 {
     for window in elementArray(ax, kAXWindowsAttribute as CFString) {
         let title = strAttr(window, kAXTitleAttribute as CFString) ?? "-"
         lines.append("window: \(title)")
+        flush()
         walk(window, 0)
+        flush()
     }
     lines.append("scanned=\(scanned)")
     let readerResult = AX.selectedTextDeep(forPID: app.processIdentifier)
     lines.append("readerResult=\(readerResult ?? "nil")")
+    flush()
     lines.append(contentsOf: hits.prefix(6))
     try? lines.joined(separator: "\n").write(toFile: "/tmp/axprobe.txt", atomically: true, encoding: .utf8)
     return 0
