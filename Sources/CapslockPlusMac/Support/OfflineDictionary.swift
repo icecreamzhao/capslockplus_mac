@@ -40,7 +40,9 @@ final class OfflineDictionary {
             Log.info("dict unavailable reason=file-missing path=\(path)")
             return
         }
-        if sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
+        // 读写成对 WAL 库更宽容（只读打开 WAL 库会 SQLITE_CANTOPEN）；打不开再退只读
+        if sqlite3_open_v2(path, &db, SQLITE_OPEN_READWRITE, nil) != SQLITE_OK,
+           sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) != SQLITE_OK {
             Log.warn("dict unavailable reason=open-failed path=\(path)")
             db = nil
             return

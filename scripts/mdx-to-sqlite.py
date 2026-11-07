@@ -170,7 +170,8 @@ def extract_ldoce(source):
     capture = None
     buffer = ""
     depth = 0
-    current_class = None
+    skip_depth = 0
+    stack = []
 
     audio_bre = None
     audio_ame = None
@@ -181,6 +182,9 @@ def extract_ldoce(source):
         elif audio_ame is None and "/ame/" in path:
             audio_ame = path
 
+    # 这些容器里的内容（同义词、搭配、短语、语法框）对查词卡片没用，整块跳过
+    NOISE = ("thes", "syn", "colloc", "collocation", "phrase", "gram", "wsexa", "signpost", "freq")
+
     for kind, value in tokens(source):
         if kind == "text":
             if capture:
@@ -189,9 +193,16 @@ def extract_ldoce(source):
 
         name = tag_name(value)
         closing = value.startswith("</")
+        current_class = attr(value, "class") or ""
+        classes = current_class.split()
 
         if name == "span":
             if closing:
+                if stack:
+                    stack.pop()
+                if skip_depth > 0:
+                    skip_depth -= 1
+                    continue
                 if capture in ("pron", "pos", "def", "example") and depth > 0:
                     depth -= 1
                     if depth == 0:
@@ -199,7 +210,7 @@ def extract_ldoce(source):
                         if capture == "pron" and phonetic is None:
                             phonetic = text.strip("/ ")
                         elif capture == "pos" and text:
-                            pos = text
+                            pos = text.strip(" ,.;")
                         elif capture == "def" and text:
                             senses.append((pos, text))
                         elif capture == "example" and text:
@@ -207,15 +218,22 @@ def extract_ldoce(source):
                         capture = None
                         buffer = ""
                 continue
-            current_class = attr(value, "class") or ""
+
+            stack.append(classes)
+            if skip_depth > 0:
+                skip_depth += 1
+                continue
+            if any(token in classes for token in NOISE):
+                skip_depth = 1
+                continue
             wanted = None
-            if "pron" in current_class.split():
+            if "pron" in classes:
                 wanted = "pron"
-            elif "pos" in current_class.split():
+            elif "pos" in classes:
                 wanted = "pos"
-            elif "def" in current_class.split():
+            elif "def" in classes:
                 wanted = "def"
-            elif "example" in current_class.split():
+            elif "example" in classes:
                 wanted = "example"
             if wanted:
                 if depth == 0:
@@ -224,13 +242,15 @@ def extract_ldoce(source):
 
     lines = []
     seen = set()
+    seen_text = set()
     for sense_pos, text in senses:
-        if (sense_pos, text) in seen:
+        if (sense_pos, text) in seen or text in seen_text:
             continue
         seen.add((sense_pos, text))
+        seen_text.add(text)
         prefix = f"{sense_pos}\t" if sense_pos else ""
         lines.append(prefix + text)
-        if len(lines) >= 12:
+        if len(lines) >= 10:
             break
     for example in examples[:3]:
         lines.append(f"例\t{example}")
@@ -252,7 +272,7 @@ def main():
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.out)
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA journal_mode=OFF")
     conn.execute("PRAGMA synchronous=OFF")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS entries(
@@ -318,6 +338,11 @@ def main():
             print(f"[{source}] {headword} /{phonetic or '-'}/ audio={audio_bre or '-'}")
             for line in body.splitlines()[:8]:
                 print("   ", line)
+
+    # 收尾切回普通日志模式并整理一遍，避免留下 -wal/-shm
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.execute("VACUUM")
+    conn.commit()
 
     counts = conn.execute("SELECT source, COUNT(*) FROM entries GROUP BY source").fetchall()
     print("\n合计：", counts)
