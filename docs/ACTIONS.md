@@ -113,7 +113,8 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 |---|---|
 | 在浮层正文里划选单词 → 再按 `caps+t` | 翻新选中的词，内容就地替换，浮层不跳位置 |
 | 浮层开着但没划选 → 再按 `caps+t` | 收起浮层，并把键盘焦点还给原来的 App |
-| 点浮层外任意处 / 等 12 秒 | 收起 |
+| `Esc`（浮层是 key 时） | 收起 |
+| 点浮层外 / 等一会儿 | **不会**关闭（想恢复自动关闭设 `panelAutoHideMs`） |
 
 - 查词顺序：本地词库（牛津高阶英汉 → 朗文）→ 都没命中才走在线有道
 - 本地词库：`~/.config/capslock-plus-mac/dict.sqlite`（48MB，10.4 万词条），由 `scripts/mdx-to-sqlite.py` 生成
@@ -121,7 +122,7 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 - 数据源：有道词典 `https://dict.youdao.com/jsonapi`（不需要 API key），英↔中双向
 - 选中超过 60 字符时拒绝翻译（避免整篇文档打过去）
 - 浮层不抢焦点，点窗口外 / 再按一次 / 12 秒后自动消失
-- 可在 keymap.json 顶层覆盖：`"translateEndpoint": "…"`、`"translateTimeoutMs": 4000`
+- 可在 keymap.json 顶层覆盖：`"translateEndpoint": "…"`、`"translateTimeoutMs": 4000`、`"panelAutoHideMs": 0`（0 = 不自动关，默认；>0 按毫秒自动关）
 
 ## 插入日期时间
 

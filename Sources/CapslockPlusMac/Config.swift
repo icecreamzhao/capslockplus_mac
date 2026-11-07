@@ -283,6 +283,8 @@ final class Config {
     private(set) var keymap: Keymap
     private(set) var translateEndpoint: String = "https://dict.youdao.com/jsonapi"
     private(set) var translateTimeoutMs: Int = 4000
+    /// 浮层自动关闭毫秒数；0 = 不自动关。默认 0。
+    private(set) var panelAutoHideMs: Int = 0
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -435,6 +437,8 @@ final class Config {
         translateEndpoint = (root["translateEndpoint"] as? String) ?? "https://dict.youdao.com/jsonapi"
         let timeout = (root["translateTimeoutMs"] as? NSNumber)?.intValue ?? 4000
         translateTimeoutMs = min(max(timeout, 1000), 15000)
+        let autoHide = (root["panelAutoHideMs"] as? NSNumber)?.intValue ?? 0
+        panelAutoHideMs = min(max(autoHide, 0), 600_000)
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action

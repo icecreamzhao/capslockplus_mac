@@ -12,7 +12,7 @@ final class TranslatePanel: NSPanel {
     private let bodyTextView = NSTextView()
     private let speakerButton = NSButton()
     private var dismissTimer: Timer?
-    private var clickMonitor: Any?
+    private var keyMonitor: Any?
     private var isShown = false
     private var audioPath: String?
     /// 显示浮层前的前台 App；关掉时要还给它，否则点了浮层再打字会没地方去
@@ -137,9 +137,9 @@ final class TranslatePanel: NSPanel {
     func dismiss() {
         dismissTimer?.invalidate()
         dismissTimer = nil
-        if let monitor = clickMonitor {
+        if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
-            clickMonitor = nil
+            keyMonitor = nil
         }
         guard isShown else { return }
         let hadFocus = isKeyWindow || NSApp.isActive
@@ -203,12 +203,17 @@ final class TranslatePanel: NSPanel {
             previousApp = NSWorkspace.shared.frontmostApplication
             orderFrontRegardless()
             isShown = true
-            installClickMonitor()
+            installEscapeMonitor()
         }
 
+        // 自动关闭时长由 keymap.json 的 panelAutoHideMs 决定，0 表示不自动关
         dismissTimer?.invalidate()
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: false) { [weak self] _ in
-            self?.dismiss()
+        dismissTimer = nil
+        let autoHideMs = Config.shared.panelAutoHideMs
+        if autoHideMs > 0 {
+            dismissTimer = Timer.scheduledTimer(withTimeInterval: Double(autoHideMs) / 1000.0, repeats: false) { [weak self] _ in
+                self?.dismiss()
+            }
         }
         Log.info("panel shown title=\(title) h=\(Int(height)) audio=\(audio == nil ? 0 : 1)")
     }
@@ -240,14 +245,12 @@ final class TranslatePanel: NSPanel {
         setFrameOrigin(NSPoint(x: x, y: y))
     }
 
-    private func installClickMonitor() {
-        clickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            // 点在浮层自己身上时别关（点喇叭会先把自己关掉）
-            if self.frame.contains(NSEvent.mouseLocation) { return }
-            self.dismiss()
+    /// Esc 关闭（浮层是 key 的时候才收得到本地按键）。
+    private func installEscapeMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            guard event.keyCode == 53 else { return event }
+            self?.dismiss()
+            return nil
         }
     }
 

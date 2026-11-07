@@ -119,6 +119,11 @@ chmod 600 ~/.config/capslock-plus-mac/youdao.json
 - 签名：`SHA256(appId + 截断后的q + salt + curtime + appSecret)`；q 超过 20 字符时取「前10 + 长度 + 后10」
 - 日志里用 `engine=有道智云` / `nmt failed ... -> jsonapi fallback` 区分实际走了哪条
 
+### 浮层行为
+
+- 默认**不自动关闭**，也不因点击外部关闭；再按 `caps+t`（浮层内无选区时）或 `Esc` 关闭
+- 想恢复自动关闭：`keymap.json` 顶层加 `"panelAutoHideMs": 12000`（毫秒，0 表示不自动关）
+
 - `dict.sqlite` 48MB / 10.4 万词条；`audio` 505MB / 9.5 万 mp3
 - 牛津包 `mdd` 只有 1,388 个图片，没有音频；读音全部来自朗文
 - 转换脚本以 `PRAGMA journal_mode=DELETE` 收尾，别留 WAL —— 只读打开 WAL 库会 `SQLITE_CANTOPEN`
