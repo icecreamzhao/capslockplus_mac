@@ -69,7 +69,11 @@ final class OfflineDictionary {
             ORDER BY CASE source WHEN 'oalecd9' THEN 0 WHEN 'ldoce6' THEN 1 ELSE 2 END
             """
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        let prepare = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard prepare == SQLITE_OK else {
+            Log.warn("dict prepare failed rc=\(prepare) msg=\(String(cString: sqlite3_errmsg(db)))")
+            return []
+        }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_text(statement, 1, word, -1, transient)
 
@@ -93,7 +97,11 @@ final class OfflineDictionary {
 
     private func scalar(_ sql: String) -> Int {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return 0 }
+        let prepare = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard prepare == SQLITE_OK else {
+            Log.warn("dict prepare failed rc=\(prepare) msg=\(String(cString: sqlite3_errmsg(db)))")
+            return 0
+        }
         defer { sqlite3_finalize(statement) }
         guard sqlite3_step(statement) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(statement, 0))
