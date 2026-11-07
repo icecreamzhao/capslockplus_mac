@@ -85,6 +85,58 @@ func runTransformSelfTest() -> Int32 {
     return 1
 }
 
+func runTilingSelfTest() -> Int32 {
+    let visible = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    let window = CGRect(x: 100, y: 100, width: 400, height: 300)
+    let cases: [(String, CGRect)] = [
+        ("left", CGRect(x: 0, y: 0, width: 500, height: 800)),
+        ("right", CGRect(x: 500, y: 0, width: 500, height: 800)),
+        ("top", CGRect(x: 0, y: 0, width: 1000, height: 400)),
+        ("bottom", CGRect(x: 0, y: 400, width: 1000, height: 400)),
+        ("maximize", CGRect(x: 0, y: 0, width: 1000, height: 800)),
+        ("center", CGRect(x: 300, y: 250, width: 400, height: 300))
+    ]
+    var failures = 0
+    for (kind, expected) in cases {
+        guard let got = WindowActions.targetRect(kind: kind, windowFrame: window, visible: visible) else {
+            print("FAIL \(kind): nil")
+            failures += 1
+            continue
+        }
+        if got != expected {
+            print("FAIL \(kind): got \(got) want \(expected)")
+            failures += 1
+        }
+    }
+    // 奇数宽度不能出现缝或重叠
+    let odd = CGRect(x: 0, y: 0, width: 1001, height: 801)
+    if let l = WindowActions.targetRect(kind: "left", windowFrame: window, visible: odd),
+       let r = WindowActions.targetRect(kind: "right", windowFrame: window, visible: odd) {
+        if l.maxX != r.minX || l.maxX != odd.maxX {
+            print("FAIL odd width seam: left.maxX=\(l.maxX) right.minX=\(r.minX) visible.maxX=\(odd.maxX)")
+            failures += 1
+        }
+    } else {
+        print("FAIL odd width: nil")
+        failures += 1
+    }
+    if WindowActions.targetRect(kind: "diagonal", windowFrame: window, visible: visible) != nil {
+        print("FAIL: 未知 kind 没有被拒绝")
+        failures += 1
+    }
+
+    if failures == 0 {
+        print("tiling selftest OK (\(cases.count) cases + odd width + unknown kind)")
+        return 0
+    }
+    print("tiling selftest FAILED: \(failures)")
+    return 1
+}
+
+if CommandLine.arguments.contains("--tiling-selftest") {
+    exit(runTilingSelfTest())
+}
+
 if CommandLine.arguments.contains("--probe-tiling") {
     print("ax_trusted=\(AX.isTrusted ? 1 : 0) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")")
     for line in WindowActions.describeTiling() {
