@@ -37,7 +37,7 @@ enum TranslateActions {
         TranslatePanel.shared.showPending(query: query)
         TranslateService.fetch(query) { translation, message in
             if let translation = translation {
-                Log.info("translate ok query=\(translation.query) lines=\(translation.lines.count) web=\(translation.webLines.count)")
+                Log.info("translate ok query=\(translation.query) engine=\(translation.engine) lines=\(translation.lines.count) web=\(translation.webLines.count)")
                 TranslatePanel.shared.show(result: translation)
             } else {
                 let text = message ?? "未知错误"
