@@ -94,6 +94,23 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 | `window.activate(1)` … `window.activate(10)` | 激活槽位；App 没开会自动启动 |
 | `minimizeWindow` | 最小化当前窗口（全屏窗口会失败，日志 `minimize failed`） |
 | `launchApp(com.apple.Safari)` | 启动或激活指定 App（bundle id） |
+| `tile(left)` / `tile(right)` | 贴左半屏 / 右半屏 |
+| `tile(top)` / `tile(bottom)` | 上半屏 / 下半屏 |
+| `tile(maximize)` | 铺满可视区（避开菜单栏和 Dock） |
+| `tile(center)` | 保持当前尺寸，在可视区居中 |
+
+多显示器按窗口中心落在哪块屏幕决定平铺目标；全屏（Full Screen Space）窗口无法移动，会记 `tile ... ok=0`。
+
+## 插入日期时间
+
+| 写法 | 作用 |
+|---|---|
+| `insertdate` | `2026-11-07` |
+| `insertdatetime` | `2026-11-07 19:46` |
+| `inserttime` | `19:46` |
+| `insertdate(yyyy/MM/dd)` | 自定义格式，遵循 Unicode 日期格式（`HH` 是 24 小时，`hh` 是 12 小时） |
+
+优先用 AX 写入光标处，App 不支持 AX 文本时退回逐字符合成输入（终端里也能用）。
 
 ## 输入法 / 系统
 
