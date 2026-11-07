@@ -105,7 +105,15 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 
 | 写法 | 作用 |
 |---|---|
-| `translate` | 翻译选中的单词/短语，浮层显示音标 + 释义 + 网络释义；再按一次收起 |
+| `translate` | 翻译选中的单词/短语，浮层显示音标 + 释义 + 网络释义 |
+
+浮层里的交互：
+
+| 操作 | 行为 |
+|---|---|
+| 在浮层正文里划选单词 → 再按 `caps+t` | 翻新选中的词，内容就地替换，浮层不跳位置 |
+| 浮层开着但没划选 → 再按 `caps+t` | 收起浮层，并把键盘焦点还给原来的 App |
+| 点浮层外任意处 / 等 12 秒 | 收起 |
 
 - 查词顺序：本地词库（牛津高阶英汉 → 朗文）→ 都没命中才走在线有道
 - 本地词库：`~/.config/capslock-plus-mac/dict.sqlite`（48MB，10.4 万词条），由 `scripts/mdx-to-sqlite.py` 生成
