@@ -15,6 +15,8 @@ final class TranslatePanel: NSPanel {
     private var clickMonitor: Any?
     private var isShown = false
     private var audioPath: String?
+    /// 显示浮层前的前台 App；关掉时要还给它，否则点了浮层再打字会没地方去
+    private var previousApp: NSRunningApplication?
 
     private let width: CGFloat = 380
     private let padding: CGFloat = 14
@@ -136,11 +138,17 @@ final class TranslatePanel: NSPanel {
             clickMonitor = nil
         }
         guard isShown else { return }
+        let hadFocus = isKeyWindow
         // 划选状态留着没意义，下次开是新的词
         bodyTextView.setSelectedRange(NSRange(location: 0, length: 0))
         orderOut(nil)
         isShown = false
-        Log.info("panel hidden")
+        if hadFocus {
+            // 点过浮层就等于把键盘焦点拿走了，关掉时还回原来的 App
+            previousApp?.activate(options: [])
+        }
+        previousApp = nil
+        Log.info("panel hidden restoredFocus=\(hadFocus ? 1 : 0)")
     }
 
     // MARK: - 布局
@@ -186,6 +194,7 @@ final class TranslatePanel: NSPanel {
             setFrameOrigin(previousOrigin)
         }
         if !isShown {
+            previousApp = NSWorkspace.shared.frontmostApplication
             orderFrontRegardless()
             isShown = true
             installClickMonitor()

@@ -12,7 +12,8 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
             let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
             print(report)
-            exit(report.contains("picked=\(expected)") ? 0 : 1)
+            let picked = TranslatePanel.shared.selectionText
+            exit(picked == expected ? 0 : 1)
         }
     }
 }
