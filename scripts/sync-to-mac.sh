@@ -10,16 +10,19 @@ export SSHPASS="${SSHPASS:-***REMOVED***}"
 SSH="sshpass -e ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
 
 # 本地有未提交改动就别同步，否则"改了没提交、Mac 上跑的还是旧的"
-if [[ -n "$(git status --porcelain)" ]]; then
+# .DS_Store 之类 Finder 垃圾不算脏
+dirty() { git status --porcelain --untracked-files=normal | grep -v '\.DS_Store' || true; }
+
+if [[ -n "$(dirty)" ]]; then
   echo "!! 本地有未提交改动，先 commit 再同步：" >&2
-  git status --short >&2
+  dirty >&2
   exit 1
 fi
 
 $SSH "$MAC" "bash -lc '
 set -e
 cd ~/$REMOTE
-if [ -n \"\$(git status --porcelain)\" ]; then
+if [ -n \"\$(git status --porcelain --untracked-files=normal | grep -v '\\.DS_Store')\" ]; then
   echo \"!! Mac 侧有本地改动，拒绝快进：\"
   git status --short
   exit 1
