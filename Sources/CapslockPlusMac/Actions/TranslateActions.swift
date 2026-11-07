@@ -22,7 +22,7 @@ enum TranslateActions {
     /// 读选区：第一次读空就隔 150ms 再试，最多三次。
     /// 双击选词后立刻按热键时，目标 App 常常还没来得及把选区暴露给 AX。
     private static func attemptRead(attempt: Int) {
-        if let text = AX.selectedText() {
+        if let text = AX.selectedTextDeep() {
             Log.info("translate source=ax attempt=\(attempt)")
             perform(text)
             return

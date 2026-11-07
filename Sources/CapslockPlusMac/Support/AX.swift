@@ -72,6 +72,64 @@ enum AX {
             ?? elementAttribute(app, kAXFocusedWindowAttribute as CFString)
     }
 
+    /// 读不到就深挖：遍历该 App 的窗口树，找第一个真的有选区的文本控件。
+    /// 有些 App（实测 Terminal）在窗口不是 key 时会对外报空选区，但选区其实还在。
+    static func selectedTextDeep() -> String? {
+        if let text = selectedText() { return text }
+        guard let app = focusedApplication() else { return nil }
+        var pid: pid_t = 0
+        AXUIElementGetPid(app, &pid)
+        guard pid != ProcessInfo.processInfo.processIdentifier else { return nil }
+
+        var visited = 0
+        var found: String?
+        func scan(_ element: AXUIElement, depth: Int) {
+            guard found == nil, visited < 300, depth <= 5 else { return }
+            visited += 1
+            var value: CFTypeRef?
+            if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
+               let raw = value as? String {
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    found = trimmed
+                    return
+                }
+            }
+            guard let children = childrenAttribute(element) else { return }
+            for child in children {
+                scan(child, depth: depth + 1)
+                if found != nil { return }
+            }
+        }
+
+        if let window = elementAttribute(app, kAXFocusedWindowAttribute as CFString) {
+            scan(window, depth: 0)
+        }
+        if found == nil, let windows = elementArrayAttribute(app, kAXWindowsAttribute as CFString) {
+            for window in windows {
+                scan(window, depth: 0)
+                if found != nil { break }
+            }
+        }
+        if let text = found {
+            Log.info("axSelection deep hit apppid=\(pid) scanned=\(visited) len=\(text.count)")
+        } else {
+            Log.warn("axSelection deep miss apppid=\(pid) scanned=\(visited)")
+        }
+        return found
+    }
+
+    private static func childrenAttribute(_ element: AXUIElement) -> [AXUIElement]? {
+        elementArrayAttribute(element, kAXChildrenAttribute as CFString)
+    }
+
+    private static func elementArrayAttribute(_ element: AXUIElement, _ name: CFString) -> [AXUIElement]? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
+              let raw = value, CFGetTypeID(raw) == CFArrayGetTypeID() else { return nil }
+        return (raw as? [AXUIElement]) ?? []
+    }
+
     static func selectedText() -> String? {
         guard let app = focusedApplication() else {
             Log.warn("axDenied")
