@@ -146,9 +146,19 @@ enum AX {
     private static func selectionViaRange(_ element: AXUIElement) -> String? {
         var raw: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &raw) == .success,
-              let value = raw, CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+              let value = raw, CFGetTypeID(value) == AXValueGetTypeID() else {
+            Log.warn("axSelection no-range-attribute")
+            return nil
+        }
         var range = CFRange()
-        guard AXValueGetValue(value as! AXValue, .cfRange, &range), range.length > 0 else { return nil }
+        guard AXValueGetValue(value as! AXValue, .cfRange, &range) else {
+            Log.warn("axSelection range-decode-failed")
+            return nil
+        }
+        guard range.length > 0 else {
+            Log.warn("axSelection range-empty (真没有选区)")
+            return nil
+        }
 
         var rangeValue = range
         guard let axRange = AXValueCreate(.cfRange, &rangeValue) else { return nil }
