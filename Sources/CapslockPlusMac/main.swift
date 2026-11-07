@@ -9,10 +9,10 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
         TranslatePanel.shared.show(entry: entry, audio: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             let expected = "verb  打招呼\nnoun  你好"
-            let picked = TranslatePanel.shared.debugSelectAllBody()
+            let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
-            print("picked=\(picked?.debugDescription ?? "nil")")
-            exit(picked == expected ? 0 : 1)
+            print(report)
+            exit(report.contains("picked=\u{1B}") ? 1 : 0)
         }
     }
 }

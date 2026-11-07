@@ -226,12 +226,18 @@ final class TranslatePanel: NSPanel {
     }
 
     /// 自检用：程序化全选正文，然后按正常路径读选区。验证 field editor 这条路通不通。
-    func debugSelectAllBody() -> String? {
+    func debugSelectAllBody() -> String {
         makeKeyAndOrderFront(nil)
-        makeFirstResponder(bodyLabel)
-        guard let editor = bodyLabel.currentEditor() else { return nil }
+        let became = makeFirstResponder(bodyLabel)
+        var report = "key=\(isKeyWindow ? 1 : 0) firstResponder=\(String(describing: firstResponder.map { type(of: $0) }))"
+        report += " became=\(became) isSelectable=\(bodyLabel.isSelectable) isEditable=\(bodyLabel.isEditable)"
+        guard let editor = bodyLabel.currentEditor() else {
+            return report + " editor=nil"
+        }
         editor.selectedRange = NSRange(location: 0, length: (bodyLabel.stringValue as NSString).length)
-        return selectionText
+        report += " editor=\(type(of: editor)) range=\(editor.selectedRange())"
+        report += " picked=\(String(describing: selectionText))"
+        return report
     }
 
     @objc private func playAudio() {
