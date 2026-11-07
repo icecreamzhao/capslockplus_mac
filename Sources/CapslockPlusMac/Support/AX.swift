@@ -118,6 +118,10 @@ enum AX {
                     return
                 }
             }
+            if let viaMarker = selectionViaMarker(element) {
+                found = viaMarker
+                return
+            }
             guard let children = childrenAttribute(element) else { return }
             for child in children {
                 scan(child, depth: depth + 1)
@@ -140,6 +144,26 @@ enum AX {
             Log.warn("axSelection deep miss apppid=\(pid) scanned=\(visited)")
         }
         return found
+    }
+
+    /// WebKit(Safari/Electron) 专用：AXSelectedText 返回 -25212 时，
+    /// 用 AXSelectedTextMarkerRange + AXStringForTextMarkerRange 取选区（实测有效）。
+    private static func selectionViaMarker(_ element: AXUIElement) -> String? {
+        var markerRaw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRaw) == .success,
+              let marker = markerRaw else { return nil }
+        var text: CFTypeRef?
+        let status = AXUIElementCopyParameterizedAttributeValue(
+            element,
+            "AXStringForTextMarkerRange" as CFString,
+            marker,
+            &text
+        )
+        guard status == .success, let string = text as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        Log.info("axSelection via-marker len=\(trimmed.count)")
+        return trimmed
     }
 
     /// 用「选区范围 + 按范围取文本」兜底，Safari/WebKit 走这条路能拿到选中的字。
@@ -225,6 +249,9 @@ enum AX {
         guard error == .success else {
             // Safari/WebKit 常常对 kAXSelectedText 返回 kAXErrorNoValue(-25212)，
             // 但选区范围还在：改用 kAXSelectedTextRange + kAXStringForRange 取原文。
+            if let viaMarker = selectionViaMarker(element) {
+                return viaMarker
+            }
             if let viaRange = selectionViaRange(element) {
                 return viaRange
             }
