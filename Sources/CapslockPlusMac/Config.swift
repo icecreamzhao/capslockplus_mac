@@ -285,6 +285,8 @@ final class Config {
     private(set) var translateTimeoutMs: Int = 4000
     /// 浮层自动关闭毫秒数；0 = 不自动关。默认 0。
     private(set) var panelAutoHideMs: Int = 0
+    /// 允许用「Cmd+C + 读剪贴板」兜底读选区的 App（bundle id 白名单）。空 = 不用兜底。
+    private(set) var clipboardFallbackApps: Set<String> = []
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -439,6 +441,7 @@ final class Config {
         translateTimeoutMs = min(max(timeout, 1000), 15000)
         let autoHide = (root["panelAutoHideMs"] as? NSNumber)?.intValue ?? 0
         panelAutoHideMs = min(max(autoHide, 0), 600_000)
+        clipboardFallbackApps = Set((root["clipboardFallbackApps"] as? [String]) ?? [])
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action

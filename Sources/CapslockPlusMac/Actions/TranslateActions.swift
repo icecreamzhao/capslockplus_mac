@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 enum TranslateActions {
@@ -28,6 +29,11 @@ enum TranslateActions {
             return
         }
         guard attempt < 4 else {
+            if let text = clipboardFallback() {
+                Log.info("translate source=clipboard attempt=\(attempt + 1)")
+                perform(text)
+                return
+            }
             Log.warn("translate failed reason=no-selection attempts=\(attempt + 1)")
             TranslatePanel.shared.showHint("没有选中文字。先用鼠标选中一个单词或短语，再按 caps+t。")
             return
@@ -39,6 +45,19 @@ enum TranslateActions {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             attemptRead(attempt: attempt + 1)
         }
+    }
+
+    /// AX 读不到时的兜底：只有白名单里的 App 才允许动剪贴板。
+    private static func clipboardFallback() -> String? {
+        let bundle = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? ""
+        guard Config.shared.clipboardFallbackApps.contains(bundle) else { return nil }
+        Log.info("clipboard fallback start app=\(bundle)")
+        guard let text = Clipboard.copySelection() else {
+            Log.warn("clipboard fallback failed app=\(bundle)")
+            return nil
+        }
+        Log.info("clipboard fallback ok app=\(bundle) len=\(text.count)")
+        return text
     }
 
     /// 查词主流程：本地词库优先，未命中走在线。
