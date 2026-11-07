@@ -107,6 +107,9 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 |---|---|
 | `translate` | 翻译选中的单词/短语，浮层显示音标 + 释义 + 网络释义；再按一次收起 |
 
+- 查词顺序：本地词库（牛津高阶英汉 → 朗文）→ 都没命中才走在线有道
+- 本地词库：`~/.config/capslock-plus-mac/dict.sqlite`（48MB，10.4 万词条），由 `scripts/mdx-to-sqlite.py` 生成
+- 读音：朗文 mdd 里抽出的 mp3，`~/.config/capslock-plus-mac/audio`（9.5 万个，505MB），由 `scripts/mdd-to-audio.py` 生成；牛津那个包 mdd 里只有图片，没有音频
 - 数据源：有道词典 `https://dict.youdao.com/jsonapi`（不需要 API key），英↔中双向
 - 选中超过 60 字符时拒绝翻译（避免整篇文档打过去）
 - 浮层不抢焦点，点窗口外 / 再按一次 / 12 秒后自动消失

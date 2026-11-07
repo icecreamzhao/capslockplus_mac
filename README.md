@@ -86,6 +86,27 @@ WindowServer 修饰键状态失步，表现为"一直按着 caps，打不了字"
 
 app 正常退出、收到 SIGTERM/SIGINT 时会自己撤掉映射；睡眠唤醒和键盘热插拔后会自己补回。
 
+## 离线词库与读音
+
+`caps+t` 先查本地词库，未命中才走在线翻译。
+
+```bash
+# 词典转 SQLite（牛津英汉在前，命中即停）
+python3 scripts/mdx-to-sqlite.py --out ~/.config/capslock-plus-mac/dict.sqlite \
+  --dict oalecd9="$HOME/Documents/dict/牛津高阶英汉/牛津高阶英汉双解词典（第9版）.mdx" \
+  --dict ldoce6="$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdx"
+
+# 抽单词读音（只要 \hwd\ 下的 mp3，不含例句音频）
+python3 scripts/mdd-to-audio.py \
+  --mdd "$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdd" \
+  --out ~/.config/capslock-plus-mac/audio
+```
+
+- 依赖只在转换阶段：`pip3 install --user readmdict`（缺 python-lzo 时脚本会塞占位模块，这两本都是 zlib 压缩）
+- `dict.sqlite` 48MB / 10.4 万词条；`audio` 505MB / 9.5 万 mp3
+- 牛津包 `mdd` 只有 1,388 个图片，没有音频；读音全部来自朗文
+- 转换脚本以 `PRAGMA journal_mode=DELETE` 收尾，别留 WAL —— 只读打开 WAL 库会 `SQLITE_CANTOPEN`
+
 ## 已知限制
 
 - `kill -9` 无法拦截，映射会残留，需手动 `keyremap.sh off`
