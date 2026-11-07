@@ -113,8 +113,9 @@ enum AX {
         Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0) front=\(front?.bundleIdentifier ?? "?") frontpid=\(front?.processIdentifier ?? 0)")
         var visited = 0
         var found: String?
+        let deadline = Date().addingTimeInterval(0.25)   // 主线程上跑，必须有时间预算
         func scan(_ element: AXUIElement, depth: Int) {
-            guard found == nil, visited < 1500, depth <= 8 else { return }
+            guard found == nil, visited < 1500, depth <= 8, Date() < deadline else { return }
             visited += 1
             var value: CFTypeRef?
             if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,

@@ -38,6 +38,41 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
 }
 
 
+/// 只看焦点元素，不递归——给会卡死客户端的浏览器（Firefox）用
+func runAXLightProbe(bundleID: String) -> Int32 {
+    var lines: [String] = []
+    let outPath = "/tmp/axlight.txt"
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+        try? "app not running".write(toFile: outPath, atomically: true, encoding: .utf8)
+        return 2
+    }
+    let ax = AXUIElementCreateApplication(app.processIdentifier)
+    lines.append("manualA11y=\(AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)")
+    var focusedRaw: CFTypeRef?
+    let fe = AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focusedRaw)
+    lines.append("focusedErr=\(fe.rawValue)")
+    if let raw = focusedRaw, CFGetTypeID(raw) == AXUIElementGetTypeID() {
+        let element = raw as! AXUIElement
+        var names: CFArray?
+        AXUIElementCopyAttributeNames(element, &names)
+        lines.append("attrs=\((names as? [String]) ?? [])")
+        var v: CFTypeRef?
+        let st = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &v)
+        lines.append("AXSelectedText err=\(st.rawValue) value=\((v as? String) ?? "-")")
+        var marker: CFTypeRef?
+        let mst = AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &marker)
+        lines.append("markerRange err=\(mst.rawValue)")
+        if mst == .success, let m = marker {
+            var out: CFTypeRef?
+            let s2 = AXUIElementCopyParameterizedAttributeValue(element, "AXStringForTextMarkerRange" as CFString, m, &out)
+            lines.append("markerText err=\(s2.rawValue) value=\((out as? String) ?? "-")")
+        }
+    }
+    lines.append("reader=\(AX.selectedText(forPID: app.processIdentifier) ?? "nil")")
+    try? lines.joined(separator: "\n").write(toFile: outPath, atomically: true, encoding: .utf8)
+    return 0
+}
+
 func runAXProbe(bundleID: String) -> Int32 {
     var lines: [String] = []
     let outPath = "/tmp/axprobe.txt"
@@ -254,6 +289,11 @@ func runTilingSelfTest() -> Int32 {
     return 1
 }
 
+if let index = CommandLine.arguments.firstIndex(of: "--ax-light"),
+   index + 1 < CommandLine.arguments.count {
+    exit(runAXLightProbe(bundleID: CommandLine.arguments[index + 1]))
+}
+
 if let index = CommandLine.arguments.firstIndex(of: "--ax-probe"),
    index + 1 < CommandLine.arguments.count {
     exit(runAXProbe(bundleID: CommandLine.arguments[index + 1]))
@@ -351,7 +391,7 @@ app.setActivationPolicy(.accessory)
 
 // 单实例保护：两个进程各自建 event tap、各自切输入法，会表现为"长按切了输入法但不生效"
 // （每次按键被处理两次，输入源被切换两轮，正好回到原点）
-let isProbeRun = CommandLine.arguments.contains("--ax-probe")
+let isProbeRun = CommandLine.arguments.contains("--ax-probe") || CommandLine.arguments.contains("--ax-light")
 if let bundleID = Bundle.main.bundleIdentifier, !isProbeRun {
     let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
         .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
