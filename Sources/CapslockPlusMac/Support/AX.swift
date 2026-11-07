@@ -244,6 +244,20 @@ enum AX {
         return selectedText(inApp: app)
     }
 
+    /// Electron/Chromium（VS Code、Chrome、Slack…）默认不建辅助功能树，
+    /// 要先把这个属性置真，之后焦点元素才会出现。每个 pid 只设一次。
+    private static var manualA11yEnabled: Set<pid_t> = []
+    private static func ensureManualAccessibility(_ app: AXUIElement) {
+        var pid: pid_t = 0
+        AXUIElementGetPid(app, &pid)
+        guard pid > 0, !manualA11yEnabled.contains(pid) else { return }
+        let status = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        if status == .success {
+            manualA11yEnabled.insert(pid)
+            Log.info("ax manual-accessibility enabled pid=\(pid)")
+        }
+    }
+
     /// 指定 pid 的 App 读选区（探针用；也方便将来自定义"始终读取某个 App"）。
     static func selectedText(forPID pid: pid_t) -> String? {
         selectedText(inApp: AXUIElementCreateApplication(pid))
@@ -257,6 +271,7 @@ enum AX {
     }
 
     private static func selectedText(inApp app: AXUIElement) -> String? {
+        ensureManualAccessibility(app)
         var pid: pid_t = 0
         AXUIElementGetPid(app, &pid)
         let bundle = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "?"

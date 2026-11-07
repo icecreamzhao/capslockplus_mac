@@ -76,6 +76,7 @@ func runAXLightProbe(bundleID: String) -> Int32 {
     }
     let ax = AXUIElementCreateApplication(app.processIdentifier)
     lines.append("manualA11y=\(AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)")
+    usleep(700_000)   // Chromium 建树是异步的，设完属性马上读会拿到 -25212
     var focusedRaw: CFTypeRef?
     let fe = AXUIElementCopyAttributeValue(ax, kAXFocusedUIElementAttribute as CFString, &focusedRaw)
     lines.append("focusedErr=\(fe.rawValue)")
