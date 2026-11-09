@@ -8,20 +8,23 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
                               body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil, html: nil)
         TranslatePanel.shared.show(entry: entry, audio: nil)
         let firstOrigin = TranslatePanel.shared.debugOrigin
+        let firstTop = TranslatePanel.shared.debugTop
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             // 模拟"结果回来再渲染一次"：位置必须原地不动
             let longer = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
                                    body: "verb\t打招呼\nnoun\t你好\nnoun\t喂\n例\thello there 你好呀", audioBre: nil, audioAme: nil, html: nil)
             TranslatePanel.shared.show(entry: longer, audio: nil)
             let secondOrigin = TranslatePanel.shared.debugOrigin
-            print("origin1=\(firstOrigin) origin2=\(secondOrigin)")
+            let secondTop = TranslatePanel.shared.debugTop
+            print("origin1=\(firstOrigin) origin2=\(secondOrigin) top1=\(firstTop) top2=\(secondTop)")
             print("appActive=\(NSApp.isActive ? 1 : 0) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil") panelKey=\(TranslatePanel.shared.isKeyWindow ? 1 : 0)")
             let expected = "verb  打招呼\nnoun  你好\nnoun  喂\n例  hello there 你好呀"
             let report = TranslatePanel.shared.debugSelectAllBody()
             print("expected=\(expected.debugDescription)")
             print(report)
             let picked = TranslatePanel.shared.selectionText
-            let stable = abs(firstOrigin.x - secondOrigin.x) < 0.5 && abs(firstOrigin.y - secondOrigin.y) < 0.5
+            // 顶边和横坐标不动即可：内容变长应该向下长，底部 origin.y 变化是正常的
+            let stable = abs(firstOrigin.x - secondOrigin.x) < 0.5 && abs(firstTop - secondTop) < 0.5
             print("stable=\(stable ? 1 : 0)")
 
             // 关掉浮层后必须把 App 激活状态还回去，否则目标 App 会把 AX 选区清空

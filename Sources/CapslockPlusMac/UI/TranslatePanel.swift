@@ -447,6 +447,9 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
 
     var debugOrigin: NSPoint { frame.origin }
 
+    /// 自检用：浮层顶边（内容变长时该值必须不变，否则整块会跳）
+    var debugTop: CGFloat { frame.maxY }
+
     /// 自检用：程序化全选正文，再按正常路径读选区，验证 NSTextView 这条路通。
     func debugSelectAllBody() -> String {
         makeKeyAndOrderFront(nil)
