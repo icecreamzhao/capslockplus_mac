@@ -134,9 +134,8 @@ enum AX {
             index += 1
             visited += 1
 
-            var value: CFTypeRef?
-            if AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
-               let raw = value as? String {
+            let selection = copyAttribute(element, kAXSelectedTextAttribute as CFString)
+            if let raw = selection.value as? String, selection.status == .success {
                 let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     found = trimmed
@@ -164,9 +163,8 @@ enum AX {
     /// WebKit(Safari/Electron) 专用：AXSelectedText 返回 -25212 时，
     /// 用 AXSelectedTextMarkerRange + AXStringForTextMarkerRange 取选区（实测有效）。
     private static func selectionViaMarker(_ element: AXUIElement) -> String? {
-        var markerRaw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, "AXSelectedTextMarkerRange" as CFString, &markerRaw) == .success,
-              let marker = markerRaw else { return nil }
+        let markerAttribute = copyAttribute(element, "AXSelectedTextMarkerRange" as CFString)
+        guard markerAttribute.status == .success, let marker = markerAttribute.value else { return nil }
         var text: CFTypeRef?
         let status = AXUIElementCopyParameterizedAttributeValue(
             element,
@@ -183,9 +181,9 @@ enum AX {
 
     /// 用「选区范围 + 按范围取文本」兜底，Safari/WebKit 走这条路能拿到选中的字。
     private static func selectionViaRange(_ element: AXUIElement) -> String? {
-        var raw: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &raw) == .success,
-              let value = raw, CFGetTypeID(value) == AXValueGetTypeID() else {
+        let rangeAttribute = copyAttribute(element, kAXSelectedTextRangeAttribute as CFString)
+        guard rangeAttribute.status == .success,
+              let value = rangeAttribute.value, CFGetTypeID(value) == AXValueGetTypeID() else {
             Log.warn("axSelection no-range-attribute")
             return nil
         }
@@ -219,20 +217,20 @@ enum AX {
     }
 
     private static func readSelection(_ element: AXUIElement) -> String? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value) == .success,
-              let raw = value as? String else { return nil }
+        guard let raw = copyAttribute(element, kAXSelectedTextAttribute as CFString).value as? String else {
+            return nil
+        }
         return raw
     }
 
-    private static func childrenAttribute(_ element: AXUIElement) -> [AXUIElement]? {
+    static func childrenAttribute(_ element: AXUIElement) -> [AXUIElement]? {
         elementArrayAttribute(element, kAXChildrenAttribute as CFString)
     }
 
-    private static func elementArrayAttribute(_ element: AXUIElement, _ name: CFString) -> [AXUIElement]? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == CFArrayGetTypeID() else { return nil }
+    static func elementArrayAttribute(_ element: AXUIElement, _ name: CFString) -> [AXUIElement]? {
+        guard let raw = copyAttribute(element, name).value, CFGetTypeID(raw) == CFArrayGetTypeID() else {
+            return nil
+        }
         return (raw as? [AXUIElement]) ?? []
     }
 
@@ -290,9 +288,8 @@ enum AX {
         }
         let role = stringAttribute(element, kAXRoleAttribute as CFString) ?? "?"
 
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value)
-        guard error == .success else {
+        let selection = copyAttribute(element, kAXSelectedTextAttribute as CFString)
+        guard selection.status == .success else {
             // Safari/WebKit 常常对 kAXSelectedText 返回 kAXErrorNoValue(-25212)，
             // 但选区范围还在：改用 kAXSelectedTextRange + kAXStringForRange 取原文。
             if let viaMarker = selectionViaMarker(element) {
@@ -301,11 +298,11 @@ enum AX {
             if let viaRange = selectionViaRange(element) {
                 return viaRange
             }
-            Log.warn("axSelection error app=\(bundle) pid=\(pid) role=\(role) source=\(focusedUI == nil ? "window" : "uiElement") code=\(error.rawValue)")
-            report(error)
+            Log.warn("axSelection error app=\(bundle) pid=\(pid) role=\(role) source=\(focusedUI == nil ? "window" : "uiElement") code=\(selection.status.rawValue)")
+            report(selection.status)
             return nil
         }
-        guard let raw = value else {
+        guard let raw = selection.value else {
             Log.warn("axSelection nil app=\(bundle) pid=\(pid) role=\(role)")
             return nil
         }
@@ -336,9 +333,8 @@ enum AX {
 
     static func selectedRange() -> CFRange? {
         guard let element = focusedElement() else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else {
+        guard let raw = copyAttribute(element, kAXSelectedTextRangeAttribute as CFString).value,
+              CFGetTypeID(raw) == AXValueGetTypeID() else {
             return nil
         }
         let axValue = raw as! AXValue
@@ -365,11 +361,7 @@ enum AX {
 
     static func focusedWindowTitle() -> String? {
         guard let window = focusedWindow() else { return nil }
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value) == .success,
-              let raw = value else {
-            return nil
-        }
+        guard let raw = copyAttribute(window, kAXTitleAttribute as CFString).value else { return nil }
         return raw as? String
     }
 
@@ -377,9 +369,7 @@ enum AX {
     static func raiseWindow(pid: pid_t, titleHint: String) -> Bool {
         guard !titleHint.isEmpty else { return false }
         let app = AXUIElementCreateApplication(pid)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-              let raw = value,
+        guard let raw = copyAttribute(app, kAXWindowsAttribute as CFString).value,
               CFGetTypeID(raw) == CFArrayGetTypeID() else {
             Log.warn("ax raiseWindow failed reason=no-windows")
             return false
@@ -390,9 +380,7 @@ enum AX {
         for index in 0..<CFArrayGetCount(windows) {
             guard let pointer = CFArrayGetValueAtIndex(windows, index) else { continue }
             let window = Unmanaged<AXUIElement>.fromOpaque(pointer).takeUnretainedValue()
-            var titleValue: CFTypeRef?
-            guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue) == .success,
-                  let windowTitle = titleValue as? String else {
+            guard let windowTitle = copyAttribute(window, kAXTitleAttribute as CFString).value as? String else {
                 continue
             }
             let rank: Int
@@ -436,37 +424,55 @@ enum AX {
         return true
     }
 
-    private static func pointAttribute(_ element: AXUIElement, _ name: CFString) -> CGPoint? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+    static func pointAttribute(_ element: AXUIElement, _ name: CFString) -> CGPoint? {
+        guard let raw = copyAttribute(element, name).value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
         var point = CGPoint.zero
         guard AXValueGetValue(raw as! AXValue, .cgPoint, &point) else { return nil }
         return point
     }
 
-    private static func sizeAttribute(_ element: AXUIElement, _ name: CFString) -> CGSize? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
+    static func sizeAttribute(_ element: AXUIElement, _ name: CFString) -> CGSize? {
+        guard let raw = copyAttribute(element, name).value, CFGetTypeID(raw) == AXValueGetTypeID() else { return nil }
         var size = CGSize.zero
         guard AXValueGetValue(raw as! AXValue, .cgSize, &size) else { return nil }
         return size
     }
 
-    private static func stringAttribute(_ element: AXUIElement, _ name: CFString) -> String? {
+    // MARK: - 原始读取原语
+    //
+    // 整个模块只有这里直接调 AXUIElementCopyAttributeValue；
+    // 探针（DebugCLI）也走这里，避免"探针自己写一套读取器"导致结论和 App 行为不一致。
+
+    static func copyAttribute(_ element: AXUIElement, _ name: CFString) -> (status: AXError, value: CFTypeRef?) {
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == CFStringGetTypeID() else {
+        let status = AXUIElementCopyAttributeValue(element, name, &value)
+        return (status, value)
+    }
+
+    static func copyParameterized(_ element: AXUIElement,
+                                  _ name: CFString,
+                                  _ parameter: CFTypeRef) -> (status: AXError, value: CFTypeRef?) {
+        var value: CFTypeRef?
+        let status = AXUIElementCopyParameterizedAttributeValue(element, name, parameter, &value)
+        return (status, value)
+    }
+
+    /// 元素支持的属性名列表（探针用）
+    static func attributeNames(of element: AXUIElement) -> [String] {
+        var names: CFArray?
+        guard AXUIElementCopyAttributeNames(element, &names) == .success else { return [] }
+        return (names as? [String]) ?? []
+    }
+
+    static func stringAttribute(_ element: AXUIElement, _ name: CFString) -> String? {
+        guard let raw = copyAttribute(element, name).value, CFGetTypeID(raw) == CFStringGetTypeID() else {
             return nil
         }
         return (raw as! String)
     }
 
-    private static func elementAttribute(_ element: AXUIElement, _ name: CFString) -> AXUIElement? {
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, name, &value) == .success,
-              let raw = value, CFGetTypeID(raw) == AXUIElementGetTypeID() else {
+    static func elementAttribute(_ element: AXUIElement, _ name: CFString) -> AXUIElement? {
+        guard let raw = copyAttribute(element, name).value, CFGetTypeID(raw) == AXUIElementGetTypeID() else {
             return nil
         }
         return (raw as! AXUIElement) as AXUIElement
