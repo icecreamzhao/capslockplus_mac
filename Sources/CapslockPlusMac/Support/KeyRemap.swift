@@ -27,8 +27,10 @@ enum KeyRemap {
         guard let output = capture(["property", "--get", "UserKeyMapping"]) else {
             return false
         }
+        // hidutil 打印的是十进制（0x700000039 = 30064771129），拿十六进制去匹配会永远判"未生效"；
+        // 两种都认，写死十进制为主
         return output.contains("HIDKeyboardModifierMappingSrc")
-            && output.contains("0x700000039")
+            && (output.contains("30064771129") || output.contains("0x700000039"))
     }
 
     @discardableResult
