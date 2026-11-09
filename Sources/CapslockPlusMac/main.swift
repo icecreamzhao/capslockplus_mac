@@ -398,7 +398,19 @@ if let index = CommandLine.arguments.firstIndex(of: "--ax-selectall"),
     exit(runSelectAllProbe(bundleID: CommandLine.arguments[index + 1]))
 }
 
-if CommandLine.arguments.contains("--clipboard-selftest") {
+if CommandLine.arguments.contains("--caps-probe") {
+    let before = HIDCapsLock.shared.isLocked
+    KeyPost.key(57)
+    usleep(200_000)
+    let after = HIDCapsLock.shared.isLocked
+    KeyPost.key(57)          // 还原
+    usleep(200_000)
+    let restored = HIDCapsLock.shared.isLocked
+    print("capsEvent before=\(before ? 1 : 0) after=\(after ? 1 : 0) restored=\(restored ? 1 : 0) toggled=\(after != before ? 1 : 0)")
+    exit(after != before && restored == before ? 0 : 1)
+}
+
+if CommandLine.arguments.contains("--clipboard-selftest") || CommandLine.arguments.contains("--caps-probe") {
     exit(Clipboard.selftest() ? 0 : 1)
 }
 
