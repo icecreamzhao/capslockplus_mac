@@ -102,6 +102,15 @@ enum InputSource {
     private static var observer: CFNotificationObserver?
 
     /// 监听系统级输入源切换，用于事后还原时间轴（偶发问题主要靠这个定位）。
+    /// 重新选中当前输入源：输入法卡在英文模式时用它复位（比切走再切回稳）
+    @discardableResult
+    static func reselectCurrent() -> Bool {
+        guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return false }
+        let status = TISSelectInputSource(current)
+        Log.info("inputsource reselect status=\(status) current=\(currentSnapshot())")
+        return status == noErr
+    }
+
     static func startObserving() {
         guard observer == nil else { return }
         observer = CFNotificationObserver(name: kTISNotifySelectedKeyboardInputSourceChanged as CFString) {

@@ -135,9 +135,19 @@ final class CapsState {
         let action = Config.shared.keymap.tapAction
         Log.info("prefix tap -> \(action.name)")
         if action == .toggleCapsLock {
-            let on = !HIDCapsLock.shared.isLocked
-            HIDCapsLock.shared.setLocked(on)
-            Log.info("prefixTap -> toggleCaps state=\(on ? "on" : "off")")
+            // 走真实按键事件：IOHIDSetModifierLockState 直接改系统状态会让
+            // WindowServer / 输入法看到的 flags 与状态不同步（表现为"切回中文却只能打英文"）
+            let before = HIDCapsLock.shared.isLocked
+            KeyPost.key(57)   // kVK_CapsLock
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                let after = HIDCapsLock.shared.isLocked
+                if after == before {
+                    HIDCapsLock.shared.setLocked(!before)
+                    Log.warn("prefixTap caps event ineffective -> hid fallback state=\(!before ? 1 : 0)")
+                } else {
+                    Log.info("prefixTap toggleCaps via=event before=\(before ? 1 : 0) after=\(after ? 1 : 0)")
+                }
+            }
             return
         }
         ActionRunner.run(action)

@@ -117,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem("重载键位 (Caps+F5)", action: #selector(reloadKeymap)))
         menu.addItem(menuItem("打开键位配置", action: #selector(openKeymap)))
         menu.addItem(menuItem("打开日志", action: #selector(openLog)))
+        menu.addItem(menuItem("重置输入法状态（卡英文时用）", action: #selector(repairInputState)))
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
         remapItem = remap
@@ -293,6 +294,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openKeymap() {
         Config.shared.ensureExists()
         NSWorkspace.shared.open(Config.shared.fileURL)
+    }
+
+    /// 输入法卡在英文模式时的急救：把大写锁定拉回关闭，并重选一次当前输入源
+    @objc private func repairInputState() {
+        let before = HIDCapsLock.shared.isLocked
+        if before {
+            HIDCapsLock.shared.setLocked(false)
+        }
+        let reselected = InputSource.reselectCurrent()
+        Log.info("repair input state capsBefore=\(before ? 1 : 0) reselect=\(reselected ? 1 : 0) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
     }
 
     @objc private func openLog() {

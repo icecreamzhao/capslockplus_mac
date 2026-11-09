@@ -391,6 +391,7 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             // 高度变了要保持"顶边不动"，否则内容变长时整块往下长
             setFrameOrigin(NSPoint(x: anchor.x, y: anchor.top - frame.height))
         }
+        clampToVisibleScreen()
         if !isShown {
             previousApp = NSWorkspace.shared.frontmostApplication
             orderFrontRegardless()
@@ -407,6 +408,20 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
                 self?.dismiss()
             }
         }
+    }
+
+    /// 内容量完高度后会往下长；贴着屏幕底部时下半截会跑到屏幕外，这里把整块推回可视区
+    private func clampToVisibleScreen() {
+        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(frame) }) ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        var origin = frame.origin
+        if frame.maxY > visible.maxY { origin.y = visible.maxY - frame.height }
+        if origin.y < visible.minY { origin.y = visible.minY }
+        if frame.maxX > visible.maxX { origin.x = visible.maxX - frame.width }
+        if origin.x < visible.minX { origin.x = visible.minX }
+        guard origin != frame.origin else { return }
+        setFrameOrigin(origin)
+        Log.info("panel clamped origin=\(Int(origin.x)),\(Int(origin.y)) h=\(Int(frame.height))")
     }
 
     private func measure(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
