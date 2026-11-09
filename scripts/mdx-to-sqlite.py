@@ -294,6 +294,11 @@ def main():
             PRIMARY KEY(word, source)
         ) WITHOUT ROWID
     """)
+    # 老库（没有 html 列）就地补列，不用删库重转
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(entries)")}
+    if "html" not in existing:
+        conn.execute("ALTER TABLE entries ADD COLUMN html BLOB")
+        print("migrated: added column html")
     conn.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
 
     for spec in args.dict:
