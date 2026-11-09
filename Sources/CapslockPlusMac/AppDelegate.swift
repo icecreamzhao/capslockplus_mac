@@ -130,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem("打开键位配置", action: #selector(openKeymap)))
         menu.addItem(menuItem("打开日志", action: #selector(openLog)))
         menu.addItem(menuItem("重置输入法状态（切回中文）", action: #selector(repairInputState)))
+        menu.addItem(menuItem("诊断输入状态（卡英文时点）", action: #selector(diagnoseInputState)))
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
         remapItem = remap
@@ -309,6 +310,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openKeymap() {
         Config.shared.ensureExists()
         NSWorkspace.shared.open(Config.shared.fileURL)
+    }
+
+    /// 卡在英文时点一下，把现场写进日志（caps/输入源/选中状态/前台 App）
+    @objc private func diagnoseInputState() {
+        let report = InputSource.diagnose()
+        for line in report.split(separator: "\n") {
+            Log.info("imeDiagnose | \(line)")
+        }
+        Log.info("imeDiagnose done secureInput=\(secureInputOn ? 1 : 0)")
     }
 
     /// 输入法卡在英文模式时的急救：大写锁定拉回关闭，再把输入源切走再切回（重新激活 IME）

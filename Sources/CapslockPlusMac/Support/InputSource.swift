@@ -102,6 +102,31 @@ enum InputSource {
     private static var observer: CFNotificationObserver?
 
     /// 监听系统级输入源切换，用于事后还原时间轴（偶发问题主要靠这个定位）。
+    /// 把输入法现场完整打出来（"只能打英文"时点菜单里的诊断项）
+    static func diagnose() -> String {
+        var lines: [String] = []
+        lines.append("caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) current=\(currentSnapshot())")
+        lines.append("front=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")")
+        for source in selectableSources() {
+            let selected = boolProperty(source, kTISPropertyInputSourceIsSelected)
+            let enabled = boolProperty(source, kTISPropertyInputSourceIsEnabled)
+            lines.append("  src id=\(id(of: source) ?? "?") name=\(name(of: source) ?? "?") selected=\(selected ? 1 : 0) enabled=\(enabled ? 1 : 0)")
+        }
+        if let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() {
+            let keys: [(String, CFString)] = [
+                ("inputSourceID", kTISPropertyInputSourceID),
+                ("inputModeID", kTISPropertyInputModeID),
+                ("category", kTISPropertyInputSourceCategory),
+                ("type", kTISPropertyInputSourceType)
+            ]
+            for (label, key) in keys {
+                let value = TISGetInputSourceProperty(current, key)
+                lines.append("  current.\(label)=\(value.map { "\($0)" } ?? "nil")")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     /// 强制切到中文输入法（非 keylayout 的输入源），已是中文源就重新 select 一次做重激活
     static func forceChineseInput(completion: ((String) -> Void)? = nil) {
         let sources = selectableSources()
