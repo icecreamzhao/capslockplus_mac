@@ -124,6 +124,33 @@ chmod 600 ~/.config/capslock-plus-mac/youdao.json
 - 默认**不自动关闭**，也不因点击外部关闭；再按 `caps+t`（浮层内无选区时）、点 ✕ 或 `Esc` 关闭
 - 想恢复自动关闭：`keymap.json` 顶层加 `"panelAutoHideMs": 12000`（毫秒，0 表示不自动关）
 
+### 词条排版（HTML 渲染）
+
+浮层默认用 **WKWebView 渲染词典原始 HTML**，颜色、表格、插图、自定义字体（牛津的音标字体）都和词典本身一致；
+不再是把 HTML 抽成纯文本。
+
+```
+数据来源
+  dict.sqlite   entries.html 列（raw deflate 压缩）→ 词条原始 HTML
+  dict-assets/  从 mdd 抽出的 css / js / 图片 / 字体
+                ~/.config/capslock-plus-mac/dict-assets/oalecd9/   1388 个文件 140MB
+                ~/.config/capslock-plus-mac/dict-assets/ldoce6/    1040 个文件  36MB
+
+重建
+  python3 scripts/mdx-to-sqlite.py --out ~/.config/capslock-plus-mac/dict.sqlite \
+      --dict "oalecd9=$HOME/Documents/dict/牛津高阶英汉/牛津高阶英汉双解词典（第9版）.mdx" \
+      --dict "ldoce6=$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdx"
+  python3 scripts/extract-dict-assets.py \
+      --mdd "$HOME/Documents/dict/牛津高阶英汉/牛津高阶英汉双解词典（第9版）.mdd" --dict oalecd9 \
+      --mdd "$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdd" --dict ldoce6 \
+      --out ~/.config/capslock-plus-mac/dict-assets
+```
+
+- `dict.sqlite` 带 HTML 后约 **459MB**（原来 48MB）；`dict-assets` 约 181MB
+- 想退回纯文本：`keymap.json` 顶层加 `"panelRenderMode": "text"`
+- 资源目录缺失或词条没有 HTML 时，自动退回纯文本模式，不会空屏
+- 浮层里划选再按 `caps+t` 靠 JS `getSelection()` 取词，和文本模式行为一致
+
 ### 读选区兼容性
 
 `caps+t` 读选中文字，按 App 家族走不同路径：

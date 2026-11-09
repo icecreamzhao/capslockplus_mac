@@ -124,6 +124,15 @@ selectLeft selectRight selectUp selectDown selectWordLeft selectWordRight delete
 - 选中超过 60 字符时拒绝翻译（避免整篇文档打过去）
 - 可在 keymap.json 顶层覆盖：`"translateEndpoint": "…"`、`"translateTimeoutMs": 4000`、`"panelAutoHideMs": 0`（0 = 不自动关，默认；>0 按毫秒自动关）
 
+### 词条渲染模式
+
+| 模式 | 说明 |
+|---|---|
+| `html`（默认） | WKWebView 渲染词典原始词条，保留颜色/表格/插图/自定义字体；需要 `dict-assets/` 存在 |
+| `text` | 纯文本（抽取后的释义行），兼容老词库或资源缺失时 |
+
+`keymap.json`：`"panelRenderMode": "html" | "text"`。词条没有 `html` 列或资源目录不在时自动落到 `text`。
+
 ### 读选区的三条路径
 
 不同 App 暴露选区的方式不一样，`translate` 按顺序尝试：
