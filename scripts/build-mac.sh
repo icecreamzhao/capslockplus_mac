@@ -11,9 +11,9 @@ SSH="sshpass -e ssh -o PubkeyAuthentication=no -o PreferredAuthentications=passw
 # 这里自己判断退出码，避免"编译失败却验了旧二进制"。
 $SSH "$MAC" "bash -lc '
 set -e
-KEYCHAIN_PASS_FILE="$HOME/.config/capslock-plus-mac/keychain.pass"
-if [ -f "$KEYCHAIN_PASS_FILE" ]; then
-  security unlock-keychain -p "$(cat "$KEYCHAIN_PASS_FILE")" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || true
+KEYCHAIN_PASS_FILE=\"\$HOME/.config/capslock-plus-mac/keychain.pass\"
+if [ -f \"\$KEYCHAIN_PASS_FILE\" ]; then
+  security unlock-keychain -p \"\$(cat \"\$KEYCHAIN_PASS_FILE\")\" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || true
 fi
 cd ~/$REMOTE
 if ! swift build -c release --arch arm64 2>/tmp/cx_build_err.txt; then
