@@ -74,19 +74,29 @@ BOT_PAD = 18
 def band(label, fill, stroke, color, rows, gaps=None):
     """rows: [[(title, lines, width), ...], ...]；gaps: 每行方框间距。返回 (每行方框几何, 层顶 y, 层底 y)。"""
     row_hs = [max(box_h(ls) for _, ls, _ in row) for row in rows]
+    # 每行按最宽的那一行等比拉伸宽度，避免出现大片空白
+    def gaps_of(ri, n):
+        gs = gaps[ri] if gaps and gaps[ri] is not None else None
+        return [(gs[i] if gs and i < len(gs) and gs[i] is not None else (18 if n > 4 else 30))
+                for i in range(n)]
+    widths = [[w for _, _, w in row] for row in rows]
+    gsets = [gaps_of(ri, len(row)) for ri, row in enumerate(rows)]
+    spans = [sum(ws) + sum(g[:-1]) for ws, g in zip(widths, gsets)]
+    target = max(spans)
+    scale = [((target - sum(g[:-1])) / sum(ws)) if sum(ws) else 1.0
+             for ws, g in zip(widths, gsets)]
     total = TOP + sum(row_hs) + ROW_GAP * (len(rows) - 1) + BOT_PAD
     d.rect(PAD, y, W - 2 * PAD, total, fill, stroke)
     d.text(PAD + 24, y + 30, label, 16, color, "700")
     pos, cy = [], y + TOP
     for ri, (row, rh) in enumerate(zip(rows, row_hs)):
-        gs = gaps[ri] if gaps and gaps[ri] is not None else None
+        gs = gsets[ri]
         x, rp = PAD + 26, []
         for i, (title, lines, w) in enumerate(row):
-            d.box(x, cy, w, title, lines, stroke)
-            rp.append((x, w, box_h(lines)))
-            g = (gs[i] if gs and i < len(gs) and gs[i] is not None
-                 else (18 if len(row) > 4 else 30))
-            x += w + g
+            w2 = w * scale[ri]
+            d.box(x, cy, w2, title, lines, stroke)
+            rp.append((x, w2, box_h(lines)))
+            x += w2 + gs[i]
         pos.append(rp)
         cy += rh + ROW_GAP
     return pos, y, y + total
