@@ -398,19 +398,15 @@ if let index = CommandLine.arguments.firstIndex(of: "--ax-selectall"),
     exit(runSelectAllProbe(bundleID: CommandLine.arguments[index + 1]))
 }
 
-if CommandLine.arguments.contains("--caps-probe") {
-    let before = HIDCapsLock.shared.isLocked
-    KeyPost.key(57)
-    usleep(200_000)
-    let after = HIDCapsLock.shared.isLocked
-    KeyPost.key(57)          // 还原
-    usleep(200_000)
-    let restored = HIDCapsLock.shared.isLocked
-    print("capsEvent before=\(before ? 1 : 0) after=\(after ? 1 : 0) restored=\(restored ? 1 : 0) toggled=\(after != before ? 1 : 0)")
-    exit(after != before && restored == before ? 0 : 1)
+if CommandLine.arguments.contains("--input-source-list") {
+    print("current=", InputSource.currentSnapshot(), "caps=", HIDCapsLock.shared.isLocked ? 1 : 0)
+    for (index, source) in InputSource.selectableSources().enumerated() {
+        print(String(format: "%2d  %@  %@", index, InputSource.debugID(source) ?? "?", InputSource.debugName(source) ?? "?"))
+    }
+    exit(0)
 }
 
-if CommandLine.arguments.contains("--clipboard-selftest") || CommandLine.arguments.contains("--caps-probe") {
+if CommandLine.arguments.contains("--clipboard-selftest") {
     exit(Clipboard.selftest() ? 0 : 1)
 }
 

@@ -133,6 +133,9 @@ enum InputSource {
         return Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
     }
 
+    static func debugID(_ source: TISInputSource) -> String? { id(of: source) }
+    static func debugName(_ source: TISInputSource) -> String? { name(of: source) }
+
     private static func id(of source: TISInputSource) -> String? {
         stringProperty(source, kTISPropertyInputSourceID as CFString)
     }
