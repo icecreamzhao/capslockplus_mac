@@ -64,6 +64,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Log.info("app=stop")
     }
 
+    /// caps 状态变化后刷新菜单栏：键盘 LED 不一定跟着变，只能靠图标旁的字确认
+    @objc private func capsStateChanged() {
+        refreshCapsIndicator()
+    }
+
+    func refreshCapsIndicator() {
+        let locked = HIDCapsLock.shared.isLocked
+        statusItem?.button?.title = locked ? " CAPS" : ""
+        statusItem?.button?.imagePosition = locked ? .imageLeft : .imageOnly
+        capsLockItem?.title = "大写锁定：\(locked ? "开" : "关")"
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
@@ -117,7 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem("重载键位 (Caps+F5)", action: #selector(reloadKeymap)))
         menu.addItem(menuItem("打开键位配置", action: #selector(openKeymap)))
         menu.addItem(menuItem("打开日志", action: #selector(openLog)))
-        menu.addItem(menuItem("重置输入法状态（卡英文时用）", action: #selector(repairInputState)))
+        menu.addItem(menuItem("重置输入法状态（切回中文）", action: #selector(repairInputState)))
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
         remapItem = remap
@@ -158,6 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         item.menu = menu
         statusItem = item
+        NotificationCenter.default.addObserver(self, selector: #selector(capsStateChanged),
+                                               name: .capsLockStateChanged, object: nil)
+        refreshCapsIndicator()
     }
 
     private func refreshWindowBindingsMenu() {
@@ -302,8 +317,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if before {
             HIDCapsLock.shared.setLocked(false)
         }
-        InputSource.cycleToReset { result in
-            Log.info("repair input state capsBefore=\(before ? 1 : 0) cycle=\(result) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+        InputSource.forceChineseInput { result in
+            Log.info("repair input state capsBefore=\(before ? 1 : 0) \(result) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
         }
     }
 

@@ -139,6 +139,7 @@ final class CapsState {
             let on = !HIDCapsLock.shared.isLocked
             HIDCapsLock.shared.setLocked(on)
             Log.info("prefixTap -> toggleCaps state=\(on ? "on" : "off") now=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+            NotificationCenter.default.post(name: .capsLockStateChanged, object: nil)
             return
         }
         ActionRunner.run(action)
@@ -162,4 +163,9 @@ final class CapsState {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// 大写锁定状态被我们改过（键盘 LED 不一定跟着变，菜单栏靠它刷新）
+    static let capsLockStateChanged = Notification.Name("CapslockPlusMac.capsLockStateChanged")
 }

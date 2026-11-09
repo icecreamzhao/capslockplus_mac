@@ -102,6 +102,24 @@ enum InputSource {
     private static var observer: CFNotificationObserver?
 
     /// 监听系统级输入源切换，用于事后还原时间轴（偶发问题主要靠这个定位）。
+    /// 强制切到中文输入法（非 keylayout 的输入源），已是中文源就重新 select 一次做重激活
+    static func forceChineseInput(completion: ((String) -> Void)? = nil) {
+        let sources = selectableSources()
+        let currentValue = currentID()
+        guard let chinese = sources.first(where: { (id(of: $0) ?? "").contains("inputmethod") }) else {
+            completion?("no-chinese-source")
+            return
+        }
+        let chineseID = id(of: chinese) ?? "?"
+        if currentValue == chineseID {
+            TISSelectInputSource(chinese)
+            completion?("reassert=\(chineseID)")
+        } else {
+            let status = TISSelectInputSource(chinese)
+            completion?("selected=\(chineseID) status=\(status) from=\(currentValue ?? "?")")
+        }
+    }
+
     /// 切到别的输入源再切回来，强制 IME 重新激活（卡在英文模式时的复位手段）
     static func cycleToReset(completion: ((String) -> Void)? = nil) {
         let sources = selectableSources()
