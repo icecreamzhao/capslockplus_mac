@@ -99,37 +99,7 @@ open /Applications/CapslockPlusMac.app
 
 ## 代码架构
 
-```
- main.swift ──▶ DebugCLI.run()      --selftest / --ax-* / --panel-* / --dict-test：跑完即退，不启动常驻实例
-      │ 不是子命令
-      ▼
- AppDelegate ──▶ 状态栏菜单 · 开机自启(LaunchAgent) · 唤醒与 HID 设备变化恢复 · Secure Input 监测
-      │
-      ▼
- ── KeyLayer 按键层 ─────────────────────────────────────────────────────────────────
-   KeyRemap        hidutil 把 Caps 重映射成 F18
-        │ F18 的 keyDown/keyUp
-        ▼
-   EventTapEngine  CGEventTap：吞掉 F18，其余按键换算成 KeyCombo 去查表
-        ├─ F18 本身 ──▶ CapsState   单按 <300ms=切大小写 / 空档 / 长按 ≥600ms=切输入法（带看门狗）
-        └─ 组合键  ──▶ Config.keymap.bindings（keymap.json 解析结果）──▶ Action
-      │
-      ▼ switch Action
- ── Actions 动作层 ─────────────────────────────────────────────────────────────────
-   TextActions     TextTransform     WindowActions     ClipboardActions   TranslateActions
-   光标/选区/删除   大小写/包裹/排序   绑定/激活/平铺      cut/copy/paste     划词翻译
-      │                │                  │                  │                  │
-      └────────────────┴─────────┬────────┴──────────────────┘                  │
-                                 ▼                                             ▼
- ── Support 系统能力层 ───────────────────────────          ── 词典与翻译 ─────────────
-   AX   core / attribute / selection / window               OfflineDictionary   dict.sqlite
-   KeyPost      带标记的合成按键                            TranslateService
-   Clipboard    快照与还原（多 item 也还原）                  ├─ YoudaoNMT       有凭据时走官方 NMT
-   InputSource  输入源切换、重启 IME 进程                     └─ dict.youdao.com 无凭据/失败时兜底
-   HIDCapsLock  IOHID 大小写锁定状态                                     │
-   WindowStore  windows.json 窗口绑定                                    ▼
-   SystemEvents · SecureInput · LoginItem · Log              TranslatePanel   WKWebView/NSTextView 浮层
-```
+![代码架构](docs/architecture.png)
 
 分层职责：
 
