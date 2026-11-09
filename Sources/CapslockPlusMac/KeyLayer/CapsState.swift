@@ -137,9 +137,7 @@ final class CapsState {
         if action == .toggleCapsLock {
             // 合成的 caps 按键事件不会改系统锁状态（实测 toggled=0），只有 HID 直设有效
             let on = !HIDCapsLock.shared.isLocked
-            HIDCapsLock.shared.setLocked(on)
-            Log.info("prefixTap -> toggleCaps state=\(on ? "on" : "off") now=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
-            NotificationCenter.default.post(name: .capsLockStateChanged, object: nil)
+            _ = CapsState.setLocked(on, reason: "tap")
             return
         }
         ActionRunner.run(action)
@@ -151,7 +149,7 @@ final class CapsState {
         }
         // 大写锁定开着时切到中文输入法，新激活的 IME 会以英文模式初始化（之后就卡住），先关掉
         if HIDCapsLock.shared.isLocked {
-            HIDCapsLock.shared.setLocked(false)
+            _ = CapsState.setLocked(false, reason: "longpress-ime")
             Log.warn("longpress caps was locked -> turned off before switching IME")
         }
         Log.info("longpress \(elapsedMs)ms -> switchInputSource begin (\(InputSource.currentSnapshot()))")
@@ -162,6 +160,23 @@ final class CapsState {
                 Log.warn("longpress \(elapsedMs)ms -> switchInputSource failed")
             }
         }
+    }
+}
+
+extension CapsState {
+    /// 唯一改大写锁定的入口：改完一定发通知。
+    /// 之前长按切输入法那条路径直接调 HIDCapsLock.setLocked(false) 不发通知，
+    /// 菜单栏的 CAPS 字样就一直停在"开"，用户看到 CAPS 却发现状态早就被关掉了。
+    @discardableResult
+    static func setLocked(_ locked: Bool, reason: String) -> Bool {
+        let before = HIDCapsLock.shared.isLocked
+        if before != locked {
+            HIDCapsLock.shared.setLocked(locked)
+        }
+        let now = HIDCapsLock.shared.isLocked
+        Log.info("caps set \(before ? 1 : 0)->\(now ? 1 : 0) reason=\(reason)")
+        NotificationCenter.default.post(name: .capsLockStateChanged, object: nil)
+        return now
     }
 }
 
