@@ -40,8 +40,10 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
 
 final class PanelHTMLSelfTestDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let entries = OfflineDictionary.shared.lookup("hello")
-        guard let entry = entries.first(where: { $0.html != nil }) else {
+        let query = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "hello"
+        let wantedSource = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : nil
+        let entries = OfflineDictionary.shared.lookup(query)
+        guard let entry = entries.first(where: { $0.html != nil && (wantedSource == nil || $0.source == wantedSource) }) else {
             print("FAIL no html entry (hits=\(entries.count))")
             exit(1)
         }
