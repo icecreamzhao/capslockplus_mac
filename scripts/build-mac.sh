@@ -4,8 +4,7 @@
 set -euo pipefail
 MAC="${MAC:-littleboy@192.168.8.181}"
 REMOTE="${REMOTE:-projects/capslock_plus_mac}"
-export SSHPASS="${SSHPASS:-***REMOVED***}"
-SSH="sshpass -e ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o StrictHostKeyChecking=no"
+SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -i $HOME/.ssh/mac_ed25519 -o IdentitiesOnly=yes"
 
 # 注意：调用方不要再把 build.sh 的输出接管道（会把失败码换成 tail 的 0），
 # 这里自己判断退出码，避免"编译失败却验了旧二进制"。

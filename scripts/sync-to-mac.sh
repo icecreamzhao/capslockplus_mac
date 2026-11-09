@@ -6,8 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 MAC="${MAC:-littleboy@192.168.8.181}"
 REMOTE="${REMOTE:-projects/capslock_plus_mac}"
-export SSHPASS="${SSHPASS:-***REMOVED***}"
-SSH="sshpass -e ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+SSH="ssh -o BatchMode=yes -o ConnectTimeout=10 -i $HOME/.ssh/mac_ed25519 -o IdentitiesOnly=yes"
 
 # 本地有未提交改动就别同步，否则"改了没提交、Mac 上跑的还是旧的"
 # .DS_Store 之类 Finder 垃圾不算脏
