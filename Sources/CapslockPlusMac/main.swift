@@ -5,13 +5,13 @@ import AVFoundation
 final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         let entry = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
-                              body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil)
+                              body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil, html: nil)
         TranslatePanel.shared.show(entry: entry, audio: nil)
         let firstOrigin = TranslatePanel.shared.debugOrigin
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             // 模拟"结果回来再渲染一次"：位置必须原地不动
             let longer = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
-                                   body: "verb\t打招呼\nnoun\t你好\nnoun\t喂\n例\thello there 你好呀", audioBre: nil, audioAme: nil)
+                                   body: "verb\t打招呼\nnoun\t你好\nnoun\t喂\n例\thello there 你好呀", audioBre: nil, audioAme: nil, html: nil)
             TranslatePanel.shared.show(entry: longer, audio: nil)
             let secondOrigin = TranslatePanel.shared.debugOrigin
             print("origin1=\(firstOrigin) origin2=\(secondOrigin)")
@@ -37,6 +37,27 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+
+final class PanelHTMLSelfTestDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let entries = OfflineDictionary.shared.lookup("hello")
+        guard let entry = entries.first(where: { $0.html != nil }) else {
+            print("FAIL no html entry (hits=\(entries.count))")
+            exit(1)
+        }
+        print("entry=\(entry.source) htmlLen=\(entry.html?.count ?? 0) assets=\(DictEntry.assetsDirectory(for: entry.source))")
+        TranslatePanel.shared.show(entry: entry, audio: entry.audioPath)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            print(TranslatePanel.shared.debugSelectAllWeb())
+            let picked = TranslatePanel.shared.selectionText ?? ""
+            TranslatePanel.shared.dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                print("afterDismiss active=\(NSApp.isActive ? 1 : 0) frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "nil")")
+                exit(picked.isEmpty ? 1 : 0)
+            }
+        }
+    }
+}
 
 /// 只看焦点元素，不递归——给会卡死客户端的浏览器（Firefox）用
 /// 给前台 App 发一次 Cmd+A 造出选区，再读 AX——用来分辨"浏览器不暴露选区"还是"当时没选区"
@@ -404,6 +425,13 @@ if let index = CommandLine.arguments.firstIndex(of: "--ax-light"),
 if let index = CommandLine.arguments.firstIndex(of: "--ax-probe"),
    index + 1 < CommandLine.arguments.count {
     exit(runAXProbe(bundleID: CommandLine.arguments[index + 1]))
+}
+
+if CommandLine.arguments.contains("--panel-html-selftest") {
+    let delegate = PanelHTMLSelfTestDelegate()
+    NSApplication.shared.delegate = delegate
+    NSApplication.shared.run()
+    exit(1)
 }
 
 if CommandLine.arguments.contains("--panel-selftest") {

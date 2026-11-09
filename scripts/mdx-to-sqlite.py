@@ -16,6 +16,7 @@
 """
 
 import argparse
+import zlib
 import html
 import re
 import sqlite3
@@ -257,6 +258,12 @@ def extract_ldoce(source):
     return phonetic, lines, audio_bre, audio_ame
 
 
+def deflate(text: str) -> bytes:
+    """raw deflate（无 zlib 头），Swift 的 NSData.decompressed(using: .zlib) 要的就是这个格式。"""
+    compressor = zlib.compressobj(6, zlib.DEFLATED, -15)
+    return compressor.compress(text.encode("utf-8")) + compressor.flush()
+
+
 EXTRACTORS = {
     "oalecd9": extract_oalecd,
     "ldoce6": extract_ldoce,
@@ -283,6 +290,7 @@ def main():
             body TEXT NOT NULL,
             audio_bre TEXT,
             audio_ame TEXT,
+            html BLOB,
             PRIMARY KEY(word, source)
         ) WITHOUT ROWID
     """)
@@ -314,11 +322,12 @@ def main():
             if not lines:
                 continue
             seen.add(lookup)
-            rows.append((lookup, label, headword, phonetic, "\n".join(lines), audio_bre, audio_ame))
+            rows.append((lookup, label, headword, phonetic, "\n".join(lines), audio_bre, audio_ame,
+                         deflate(html_text)))
 
         conn.executemany(
-            "INSERT OR REPLACE INTO entries(word, source, headword, phonetic, body, audio_bre, audio_ame)"
-            " VALUES (?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO entries(word, source, headword, phonetic, body, audio_bre, audio_ame, html)"
+            " VALUES (?,?,?,?,?,?,?,?)",
             rows,
         )
         conn.execute("INSERT OR REPLACE INTO meta VALUES (?,?)", (f"count_{label}", str(len(rows))))

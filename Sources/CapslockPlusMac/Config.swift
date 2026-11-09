@@ -287,6 +287,8 @@ final class Config {
     private(set) var panelAutoHideMs: Int = 0
     /// 允许用「Cmd+C + 读剪贴板」兜底读选区的 App（bundle id 白名单）。空 = 不用兜底。
     private(set) var clipboardFallbackApps: Set<String> = []
+    /// 浮层渲染模式："html"（默认，原版词条排版）或 "text"（纯文本兜底）。
+    private(set) var panelRenderMode: String = "html"
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -442,6 +444,7 @@ final class Config {
         let autoHide = (root["panelAutoHideMs"] as? NSNumber)?.intValue ?? 0
         panelAutoHideMs = min(max(autoHide, 0), 600_000)
         clipboardFallbackApps = Set((root["clipboardFallbackApps"] as? [String]) ?? [])
+        panelRenderMode = (root["panelRenderMode"] as? String)?.lowercased() ?? "html"
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action
@@ -491,7 +494,7 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count)")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode)")
         return true
     }
 

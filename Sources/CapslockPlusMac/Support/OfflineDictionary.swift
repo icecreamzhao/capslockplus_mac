@@ -8,6 +8,8 @@ struct DictEntry {
     let body: String
     let audioBre: String?
     let audioAme: String?
+    /// 原始词条 HTML（带词典自己的 css 类名/自定义标签），nil = 库里没有这一列的内容
+    let html: String?
 
     var sourceLabel: String {
         switch source {
@@ -20,6 +22,20 @@ struct DictEntry {
     var lines: [String] { body.split(separator: "\n").map(String.init) }
 
     var audioPath: String? { audioBre ?? audioAme }
+
+    /// 词典自带的样式表文件名（在 dict-assets/<source>/ 里）
+    var stylesheet: String? {
+        switch source {
+        case "oalecd9": return "oalecd9.css"
+        case "ldoce6": return "LongmanDictionaryOfContemporaryEnglish6thEnEn.css"
+        default: return nil
+        }
+    }
+
+    /// 排版资源目录：dict-assets/<source>/
+    static func assetsDirectory(for source: String) -> String {
+        NSString(string: "~/.config/capslock-plus-mac/dict-assets/\(source)").expandingTildeInPath
+    }
 }
 
 /// 离线词库：查 ~/.config/capslock-plus-mac/dict.sqlite（由 scripts/mdx-to-sqlite.py 生成）。
@@ -66,7 +82,7 @@ final class OfflineDictionary {
 
     private func query(_ word: String) -> [DictEntry] {
         let sql = """
-            SELECT source, headword, phonetic, body, audio_bre, audio_ame
+            SELECT source, headword, phonetic, body, audio_bre, audio_ame, html
             FROM entries WHERE word = ?
             ORDER BY CASE source WHEN 'oalecd9' THEN 0 WHEN 'ldoce6' THEN 1 ELSE 2 END
             """
@@ -85,16 +101,31 @@ final class OfflineDictionary {
                 guard let pointer = sqlite3_column_text(statement, index) else { return nil }
                 return String(cString: pointer)
             }
+            let blobIndex: Int32 = 6
+            let htmlBlob = sqlite3_column_blob(statement, blobIndex)
+            let htmlBytes = Int(sqlite3_column_bytes(statement, blobIndex))
             rows.append(DictEntry(
                 source: text(0) ?? "",
                 headword: text(1) ?? word,
                 phonetic: text(2),
                 body: text(3) ?? "",
                 audioBre: text(4),
-                audioAme: text(5)
+                audioAme: text(5),
+                html: Self.inflate(htmlBlob, htmlBytes)
             ))
         }
         return rows
+    }
+
+    /// raw deflate → String；转换脚本用 zlib.compressobj(..., wbits=-15) 压的
+    private static func inflate(_ pointer: UnsafeRawPointer?, _ count: Int) -> String? {
+        guard let pointer = pointer, count > 0 else { return nil }
+        let data = Data(bytes: pointer, count: count)
+        guard let inflated = try? (data as NSData).decompressed(using: .zlib) as Data else {
+            Log.warn("dict html inflate failed bytes=\(count)")
+            return nil
+        }
+        return String(data: inflated, encoding: .utf8)
     }
 
     private func scalar(_ sql: String) -> Int {
