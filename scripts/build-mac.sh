@@ -12,7 +12,7 @@ $SSH "$MAC" "bash -lc '
 set -e
 KEYCHAIN_PASS_FILE=\"\$HOME/.config/capslock-plus-mac/keychain.pass\"
 if [ -f \"\$KEYCHAIN_PASS_FILE\" ]; then
-  security unlock-keychain -p \"\$(cat \"\$KEYCHAIN_PASS_FILE\")\" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || true
+  security unlock-keychain -p \"\$(cat \"\$KEYCHAIN_PASS_FILE\")\" ~/Library/Keychains/login.keychain-db >/dev/null 2>&1 || echo \"WARN_KEYCHAIN_UNLOCK_FAILED(口令文件过期？签名可能失败)\"
 fi
 cd ~/$REMOTE
 if ! swift build -c release --arch arm64 2>/tmp/cx_build_err.txt; then
