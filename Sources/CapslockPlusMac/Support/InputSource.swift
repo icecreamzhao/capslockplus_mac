@@ -121,8 +121,7 @@ enum InputSource {
                 ("type", kTISPropertyInputSourceType)
             ]
             for (label, key) in keys {
-                let value = TISGetInputSourceProperty(current, key)
-                lines.append("  current.\(label)=\(value.map { "\($0)" } ?? "nil")")
+                lines.append("  current.\(label)=\(propertyString(current, key) ?? "nil")")
             }
         }
         return lines.joined(separator: "\n")
@@ -177,6 +176,37 @@ enum InputSource {
         return status == noErr
     }
 
+    /// 杀掉输入法进程再重选中文源——「输入源是中文、caps 是关的，但打出来还是英文」的复位手段。
+    ///
+    /// 实测取证：故障时 `imeDiagnose` 显示 `current=com.apple.inputmethod.SCIM.ITABC (简体拼音) caps=0`、
+    /// ABC `selected=0`，也就是说 TIS 层面完全正常；卡住的是苹果拼音 IME 进程内部的中/英状态。
+    /// 这个状态在 TIS 里没有对应的输入模式可选中（全量枚举 331 个输入源，SCIM 只暴露 Pinyin 一个
+    /// keyboard input mode，没有 English 变体），也没有公开 API 读写；重选同源、切到 ABC 再切回来都不清它。
+    /// 唯一确定的复位是重建 IME 进程：imklaunchagent 会在下一次按键时拉起一个干净实例，中/英回到中文。
+    /// 代价：正在进行的拼音组合会丢，重建那一下约 1 秒没有输入法。
+    static func restartIMEServer(completion: ((String) -> Void)? = nil) {
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-f", "/Input Methods/SCIM.app/"]
+        var killed = false
+        do {
+            try pkill.run()
+            pkill.waitUntilExit()
+            killed = pkill.terminationStatus == 0
+        } catch {
+            Log.warn("imeRestart pkill failed reason=\(error.localizedDescription)")
+        }
+        Log.info("imeRestart pkill killed=\(killed ? 1 : 0) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            forceChineseInput { result in
+                let line = "imeRestart killed=\(killed ? 1 : 0) \(result) now=\(currentSnapshot())"
+                Log.info(line)
+                completion?(line)
+            }
+        }
+    }
+
     static func startObserving() {
         guard observer == nil else { return }
         observer = CFNotificationObserver(name: kTISNotifySelectedKeyboardInputSourceChanged as CFString) {
@@ -197,6 +227,20 @@ enum InputSource {
     private static func stringProperty(_ source: TISInputSource, _ key: CFString) -> String? {
         guard let raw = TISGetInputSourceProperty(source, key) else { return nil }
         return Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
+    }
+
+    /// 诊断用：把属性值转成人能读的字符串。
+    /// 旧的 `"\($0)"` 打的是 CFTypeRef 指针地址（`0x00000078c4b9cd00`），等于没打。
+    private static func propertyString(_ source: TISInputSource, _ key: CFString) -> String? {
+        guard let raw = TISGetInputSourceProperty(source, key) else { return nil }
+        let object = Unmanaged<CFTypeRef>.fromOpaque(raw).takeUnretainedValue()
+        if CFGetTypeID(object) == CFStringGetTypeID() {
+            return (object as! CFString) as String
+        }
+        if CFGetTypeID(object) == CFBooleanGetTypeID() {
+            return (object as! CFBoolean) == kCFBooleanTrue ? "1" : "0"
+        }
+        return nil
     }
 
     static func debugID(_ source: TISInputSource) -> String? { id(of: source) }

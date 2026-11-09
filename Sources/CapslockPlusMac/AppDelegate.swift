@@ -130,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem("打开键位配置", action: #selector(openKeymap)))
         menu.addItem(menuItem("打开日志", action: #selector(openLog)))
         menu.addItem(menuItem("重置输入法状态（切回中文）", action: #selector(repairInputState)))
+        menu.addItem(menuItem("重启输入法进程（仍卡英文用这个）", action: #selector(restartIME)))
         menu.addItem(menuItem("诊断输入状态（卡英文时点）", action: #selector(diagnoseInputState)))
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
@@ -329,6 +330,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         InputSource.forceChineseInput { result in
             Log.info("repair input state capsBefore=\(before ? 1 : 0) \(result) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+        }
+    }
+
+    @objc private func restartIME() {
+        InputSource.restartIMEServer { line in
+            Log.info("menu imeRestart -> \(line)")
         }
     }
 
