@@ -183,11 +183,12 @@ enum InputSource {
     /// 这个状态在 TIS 里没有对应的输入模式可选中（全量枚举 331 个输入源，SCIM 只暴露 Pinyin 一个
     /// keyboard input mode，没有 English 变体），也没有公开 API 读写；重选同源、切到 ABC 再切回来都不清它。
     /// 唯一确定的复位是重建 IME 进程：imklaunchagent 会在下一次按键时拉起一个干净实例，中/英回到中文。
+    /// 必须 SIGKILL：实测 `pkill -f`（SIGTERM）返回 0、进程却活着（pid 不变），IME 自己拦了 SIGTERM。
     /// 代价：正在进行的拼音组合会丢，重建那一下约 1 秒没有输入法。
     static func restartIMEServer(completion: ((String) -> Void)? = nil) {
         let pkill = Process()
         pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        pkill.arguments = ["-f", "/Input Methods/SCIM.app/"]
+        pkill.arguments = ["-9", "-f", "/Input Methods/SCIM.app/"]
         var killed = false
         do {
             try pkill.run()
