@@ -334,7 +334,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func restartIME() {
-        InputSource.restartIMEServer { line in
+        InputSource.restartIMEServer(reason: "menu") { line in
             Log.info("menu imeRestart -> \(line)")
         }
     }

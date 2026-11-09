@@ -185,19 +185,13 @@ enum InputSource {
     /// 唯一确定的复位是重建 IME 进程：imklaunchagent 会在下一次按键时拉起一个干净实例，中/英回到中文。
     /// 必须 SIGKILL：实测 `pkill -f`（SIGTERM）返回 0、进程却活着（pid 不变），IME 自己拦了 SIGTERM。
     /// 代价：正在进行的拼音组合会丢，重建那一下约 1 秒没有输入法。
-    static func restartIMEServer(completion: ((String) -> Void)? = nil) {
-        let pkill = Process()
-        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        pkill.arguments = ["-9", "-f", "/Input Methods/SCIM.app/"]
-        var killed = false
-        do {
-            try pkill.run()
-            pkill.waitUntilExit()
-            killed = pkill.terminationStatus == 0
-        } catch {
-            Log.warn("imeRestart pkill failed reason=\(error.localizedDescription)")
-        }
-        Log.info("imeRestart pkill killed=\(killed ? 1 : 0) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+    static func restartIMEServer(reason: String = "menu", completion: ((String) -> Void)? = nil) {
+        // 先留证据：故障是偶发的，等它下次发生，这段现场就是唯一的线索
+        let before = run("/usr/bin/pgrep", ["-fl", "Input Methods/SCIM"]).map { $0.output.isEmpty ? "(not-running)" : $0.output } ?? "(spawn-failed)"
+        Log.info("imeRestart begin reason=\(reason) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) current=\(currentSnapshot()) ime=\(before.replacingOccurrences(of: "\n", with: " | "))")
+
+        let killed = (run("/usr/bin/pkill", ["-9", "-f", "/Input Methods/SCIM.app/"])?.status ?? -1) == 0
+        Log.info("imeRestart pkill killed=\(killed ? 1 : 0)")
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             forceChineseInput { result in
@@ -206,6 +200,26 @@ enum InputSource {
                 completion?(line)
             }
         }
+    }
+
+    /// 跑一个外部命令，返回退出码 + stdout。用来取 IME 进程现场和发信号。
+    private static func run(_ path: String, _ arguments: [String]) -> (status: Int32, output: String)? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            Log.warn("imeRestart spawn failed path=\(path) reason=\(error.localizedDescription)")
+            return nil
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return (process.terminationStatus, text)
     }
 
     static func startObserving() {

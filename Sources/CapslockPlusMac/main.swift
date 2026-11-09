@@ -415,7 +415,7 @@ if CommandLine.arguments.contains("--ime-reset") {
     // 杀掉 IME 进程再重选中文源。回调走 DispatchQueue.main，所以这里要泵主 run loop，
     // 用信号量阻塞主线程会让 asyncAfter 永远不触发（只有超时）。
     var output: String?
-    InputSource.restartIMEServer { line in output = line }
+    InputSource.restartIMEServer(reason: "cli") { line in output = line }
     let deadline = Date().addingTimeInterval(4)
     while output == nil && Date() < deadline {
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))

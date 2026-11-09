@@ -205,6 +205,10 @@ enum ActionRunner {
             Log.warn("action toggleCapsLock is tap-only")
         case .reloadConfig:
             Config.shared.reload()
+        case .resetInputMethod:
+            InputSource.restartIMEServer(reason: "chord") { line in
+                Log.info("chord imeReset -> \(line)")
+            }
         case .switchInputSource:
             InputSource.switchNext { name in
                 if let name = name {
