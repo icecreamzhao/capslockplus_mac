@@ -296,14 +296,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(Config.shared.fileURL)
     }
 
-    /// 输入法卡在英文模式时的急救：把大写锁定拉回关闭，并重选一次当前输入源
+    /// 输入法卡在英文模式时的急救：大写锁定拉回关闭，再把输入源切走再切回（重新激活 IME）
     @objc private func repairInputState() {
         let before = HIDCapsLock.shared.isLocked
         if before {
             HIDCapsLock.shared.setLocked(false)
         }
-        let reselected = InputSource.reselectCurrent()
-        Log.info("repair input state capsBefore=\(before ? 1 : 0) reselect=\(reselected ? 1 : 0) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+        InputSource.cycleToReset { result in
+            Log.info("repair input state capsBefore=\(before ? 1 : 0) cycle=\(result) capsNow=\(HIDCapsLock.shared.isLocked ? 1 : 0)")
+        }
     }
 
     @objc private func openLog() {

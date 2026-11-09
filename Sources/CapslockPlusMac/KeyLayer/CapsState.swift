@@ -148,6 +148,11 @@ final class CapsState {
         guard Config.shared.keymap.longPress == "switchInputSource" else {
             return
         }
+        // 大写锁定开着时切到中文输入法，新激活的 IME 会以英文模式初始化（之后就卡住），先关掉
+        if HIDCapsLock.shared.isLocked {
+            HIDCapsLock.shared.setLocked(false)
+            Log.warn("longpress caps was locked -> turned off before switching IME")
+        }
         Log.info("longpress \(elapsedMs)ms -> switchInputSource begin (\(InputSource.currentSnapshot()))")
         InputSource.switchNext { name in
             if let name = name {

@@ -102,7 +102,29 @@ enum InputSource {
     private static var observer: CFNotificationObserver?
 
     /// 监听系统级输入源切换，用于事后还原时间轴（偶发问题主要靠这个定位）。
-    /// 重新选中当前输入源：输入法卡在英文模式时用它复位（比切走再切回稳）
+    /// 切到别的输入源再切回来，强制 IME 重新激活（卡在英文模式时的复位手段）
+    static func cycleToReset(completion: ((String) -> Void)? = nil) {
+        let sources = selectableSources()
+        let currentID = currentID()
+        guard let other = sources.first(where: { id(of: $0) != currentID }),
+              let current = sources.first(where: { id(of: $0) == currentID }) else {
+            completion?("no-target")
+            return
+        }
+        let otherID = id(of: other) ?? "?"
+        let status = TISSelectInputSource(other)
+        Log.info("inputsource cycle step1 -> \(otherID) status=\(status)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            let back = TISSelectInputSource(current)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                let now = currentSnapshot()
+                Log.info("inputsource cycle step2 status=\(back) now=\(now)")
+                completion?("other=\(otherID) ok=\(back == noErr ? 1 : 0) now=\(now)")
+            }
+        }
+    }
+
+    /// 重新选中当前输入源（同源重选，一般无副作用）
     @discardableResult
     static func reselectCurrent() -> Bool {
         guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return false }
