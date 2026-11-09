@@ -462,6 +462,16 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
 
     var debugOrigin: NSPoint { frame.origin }
 
+    /// 自检用：强行把浮层挪到屏幕外，再走一次 clamp，返回夹取后的 frame
+    func debugForceOffscreenAndClamp() -> (before: NSRect, after: NSRect, visible: NSRect)? {
+        guard let screen = NSScreen.main else { return nil }
+        let visible = screen.visibleFrame
+        setFrameOrigin(NSPoint(x: visible.maxX - 40, y: visible.minY - 180))
+        let before = frame
+        clampToVisibleScreen()
+        return (before, frame, visible)
+    }
+
     /// 自检用：浮层顶边（内容变长时该值必须不变，否则整块会跳）
     var debugTop: CGFloat { frame.maxY }
 

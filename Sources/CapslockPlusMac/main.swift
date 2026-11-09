@@ -432,6 +432,34 @@ if let index = CommandLine.arguments.firstIndex(of: "--ax-probe"),
     exit(runAXProbe(bundleID: CommandLine.arguments[index + 1]))
 }
 
+final class PanelClampSelfTestDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let entry = DictEntry(source: "oalecd9", headword: "hello", phonetic: "həˈləʊ",
+                              body: "verb\t打招呼\nnoun\t你好", audioBre: nil, audioAme: nil, html: nil)
+        TranslatePanel.shared.show(entry: entry, audio: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            guard let result = TranslatePanel.shared.debugForceOffscreenAndClamp() else {
+                print("FAIL no screen")
+                exit(1)
+            }
+            let inside = result.after.minY >= result.visible.minY - 0.5
+                && result.after.maxY <= result.visible.maxY + 0.5
+                && result.after.maxX <= result.visible.maxX + 0.5
+                && result.after.minX >= result.visible.minX - 0.5
+            print("before=\(result.before) after=\(result.after) visible=\(result.visible) inside=\(inside ? 1 : 0)")
+            TranslatePanel.shared.dismiss()
+            exit(inside ? 0 : 1)
+        }
+    }
+}
+
+if CommandLine.arguments.contains("--panel-clamp-selftest") {
+    let delegate = PanelClampSelfTestDelegate()
+    NSApplication.shared.delegate = delegate
+    NSApplication.shared.run()
+    exit(1)
+}
+
 if CommandLine.arguments.contains("--panel-html-selftest") {
     let delegate = PanelHTMLSelfTestDelegate()
     NSApplication.shared.delegate = delegate
