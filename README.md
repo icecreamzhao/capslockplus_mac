@@ -49,6 +49,15 @@ Capslock+（Windows/AutoHotkey）的 macOS 自用版，v0 只做两件事：**�
 产物在 `dist/CapslockPlusMac.app`，用 `Apple Development: 1127534615@qq.com` 签名。
 **签名身份不要换**：TCC 授权（辅助功能 / 输入监控）跟签名绑定，换了要重新授权。
 
+从 Linux 侧构建需要两把钥匙，都不进仓库：
+
+- **SSH 密钥**：`~/.ssh/mac_ed25519`（`~/.ssh/config` 里 `Host mac`）。Mac 的 `authorized_keys` 已收录，
+  且 sshd 已关闭密码认证（`/etc/ssh/sshd_config.d/99-no-password.conf`），只能用密钥登录。
+- **签名解锁口令**：Mac 上的 `~/.config/capslock-plus-mac/keychain.pass`（mode 600），
+  `build-mac.sh` 用它 `security unlock-keychain` 后调 codesign。
+  改 macOS 登录密码后必须同步这个文件，否则解锁静默失败（脚本里是 `|| true`）→ codesign 报 `errSecInternalComponent`。
+
+
 ## 仓库与两端分工
 
 远程仓库：`git@github.com:icecreamzhao/capslockplus_mac.git`（macOS 与 Linux 两份工作副本共用）
