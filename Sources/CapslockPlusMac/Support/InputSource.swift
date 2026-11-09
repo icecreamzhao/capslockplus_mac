@@ -145,37 +145,6 @@ enum InputSource {
         }
     }
 
-    /// 切到别的输入源再切回来，强制 IME 重新激活（卡在英文模式时的复位手段）
-    static func cycleToReset(completion: ((String) -> Void)? = nil) {
-        let sources = selectableSources()
-        let currentID = currentID()
-        guard let other = sources.first(where: { id(of: $0) != currentID }),
-              let current = sources.first(where: { id(of: $0) == currentID }) else {
-            completion?("no-target")
-            return
-        }
-        let otherID = id(of: other) ?? "?"
-        let status = TISSelectInputSource(other)
-        Log.info("inputsource cycle step1 -> \(otherID) status=\(status)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            let back = TISSelectInputSource(current)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                let now = currentSnapshot()
-                Log.info("inputsource cycle step2 status=\(back) now=\(now)")
-                completion?("other=\(otherID) ok=\(back == noErr ? 1 : 0) now=\(now)")
-            }
-        }
-    }
-
-    /// 重新选中当前输入源（同源重选，一般无副作用）
-    @discardableResult
-    static func reselectCurrent() -> Bool {
-        guard let current = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return false }
-        let status = TISSelectInputSource(current)
-        Log.info("inputsource reselect status=\(status) current=\(currentSnapshot())")
-        return status == noErr
-    }
-
     /// 杀掉输入法进程再重选中文源——「输入源是中文、caps 是关的，但打出来还是英文」的复位手段。
     ///
     /// 实测取证：故障时 `imeDiagnose` 显示 `current=com.apple.inputmethod.SCIM.ITABC (简体拼音) caps=0`、

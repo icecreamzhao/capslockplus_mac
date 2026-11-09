@@ -469,7 +469,7 @@ enum AX {
               let raw = value, CFGetTypeID(raw) == AXUIElementGetTypeID() else {
             return nil
         }
-        return raw as! AXUIElement
+        return (raw as! AXUIElement) as AXUIElement
     }
 
     private static func report(_ error: AXError) {

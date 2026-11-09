@@ -195,12 +195,6 @@ func runAXProbe(bundleID: String) -> Int32 {
     lines.append("enhancedUI=\(AXUIElementSetAttributeValue(ax, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue).rawValue)")
     lines.append("manualA11y=\(AXUIElementSetAttributeValue(ax, "AXManualAccessibility" as CFString, kCFBooleanTrue).rawValue)")
 
-    func elementAttr(_ el: AXUIElement, _ name: CFString) -> AXUIElement? {
-        var v: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, name, &v) == .success, let raw = v,
-              CFGetTypeID(raw) == AXUIElementGetTypeID() else { return nil }
-        return (raw as! AXUIElement)
-    }
     func elementArray(_ el: AXUIElement, _ name: CFString) -> [AXUIElement] {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, name, &v) == .success, let raw = v,
@@ -279,6 +273,18 @@ func runSelfTest() -> Int32 {
     }
     if TapAction(rawValue: "toggleCapsLock") == nil {
         failures.append("unknown tap action")
+    }
+
+    // 往返自检：动作的 name 必须能被 parse 回同一个动作。
+    // 这条是防"新增动作时忘了同步 name 或解析表"——两处手工映射，漏一处编译照样过。
+    for (key, action) in Action.fixedTable {
+        guard let roundTrip = Action.parse(action.name) else {
+            failures.append("name not parseable key=\(key) name=\(action.name)")
+            continue
+        }
+        if roundTrip != action {
+            failures.append("name drift key=\(key) name=\(action.name) -> \(roundTrip.name)")
+        }
     }
 
     if failures.isEmpty {

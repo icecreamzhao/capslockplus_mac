@@ -2,13 +2,9 @@ import Foundation
 import AppKit
 import CoreGraphics
 
+/// 剪贴板动作：只做系统级的 cut/copy/paste 和"粘成纯文本"。
+/// 多剪贴板（额外 pasteboard）在 v0 就被砍掉了，相关代码不再保留。
 enum ClipboardActions {
-    static let extraName = NSPasteboard.Name("com.littleboy.CapslockPlusMac.extra1")
-
-    private static var extra: NSPasteboard {
-        return NSPasteboard(name: extraName)
-    }
-
     static func cut() {
         KeyPost.key(7, flags: .maskCommand)
     }
@@ -21,77 +17,15 @@ enum ClipboardActions {
         KeyPost.key(9, flags: .maskCommand)
     }
 
-    static func extraCut() {
-        captureToExtra(keyCode: 7, label: "cut")
-    }
-
-    static func extraCopy() {
-        captureToExtra(keyCode: 8, label: "copy")
-    }
-
-    static func extraPaste() {
-        let source = extra
-        guard let items = source.pasteboardItems, !items.isEmpty else {
-            Log.warn("clipboard extra empty")
-            return
-        }
-        let general = NSPasteboard.general
-        general.clearContents()
-        guard general.writeObjects(clone(items)) else {
-            Log.warn("clipboard extra paste failed")
-            return
-        }
-        KeyPost.key(9, flags: .maskCommand)
-    }
-
+    /// 粘贴为纯文本：把剪贴板里的富文本/样式清掉，只留字符串，再发 Cmd+V
     static func pastePlain() {
-        let text = extra.string(forType: .string) ?? NSPasteboard.general.string(forType: .string)
-        guard let text = text else {
+        let general = NSPasteboard.general
+        guard let text = general.string(forType: .string) else {
             Log.warn("clipboard pastePlain empty")
             return
         }
-        let general = NSPasteboard.general
         general.clearContents()
         general.setString(text, forType: .string)
         KeyPost.key(9, flags: .maskCommand)
-    }
-
-    private static func captureToExtra(keyCode: CGKeyCode, label: String) {
-        let general = NSPasteboard.general
-        let before = general.changeCount
-        KeyPost.key(keyCode, flags: .maskCommand)
-
-        let deadline = Date().addingTimeInterval(0.6)
-        while general.changeCount == before && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
-        guard general.changeCount != before else {
-            Log.warn("clipboard capture timeout action=\(label)")
-            return
-        }
-        guard let items = general.pasteboardItems, !items.isEmpty else {
-            Log.warn("clipboard capture empty action=\(label)")
-            return
-        }
-
-        let board = extra
-        board.clearContents()
-        guard board.writeObjects(clone(items)) else {
-            Log.warn("clipboard extra write failed")
-            return
-        }
-        Log.info("clipboard captured n=\(items.count) action=\(label)")
-    }
-
-    private static func clone(_ items: [NSPasteboardItem]) -> [NSPasteboardItem] {
-        return items.map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    copy.setData(data, forType: type)
-                }
-            }
-            return copy
-        }
     }
 }

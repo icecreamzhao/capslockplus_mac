@@ -183,12 +183,6 @@ enum ActionRunner {
             ClipboardActions.paste()
         case .pastePlain:
             ClipboardActions.pastePlain()
-        case .extraCut:
-            ClipboardActions.extraCut()
-        case .extraCopy:
-            ClipboardActions.extraCopy()
-        case .extraPaste:
-            ClipboardActions.extraPaste()
         case .translate:
             TranslateActions.translateSelection()
         case .tile(let kind):

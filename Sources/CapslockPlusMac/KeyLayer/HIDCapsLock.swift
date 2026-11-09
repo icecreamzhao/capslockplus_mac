@@ -64,11 +64,4 @@ final class HIDCapsLock {
             return ()
         }
     }
-
-    @discardableResult
-    func reconcile(desired: Bool) -> Bool {
-        guard isLocked != desired else { return false }
-        setLocked(desired)
-        return true
-    }
 }

@@ -50,9 +50,6 @@ enum Action: Equatable {
     case copy
     case paste
     case pastePlain
-    case extraCut
-    case extraCopy
-    case extraPaste
 
     case windowBind(Int)
     case windowActivate(Int)
@@ -113,9 +110,6 @@ enum Action: Equatable {
         case .copy: return "copy"
         case .paste: return "paste"
         case .pastePlain: return "pastePlain"
-        case .extraCut: return "extraClipboard.cut"
-        case .extraCopy: return "extraClipboard.copy"
-        case .extraPaste: return "extraClipboard.paste"
         case .windowBind(let index): return "window.bind(\(index))"
         case .windowActivate(let index): return "window.activate(\(index))"
         case .minimizeWindow: return "minimizeWindow"
@@ -130,7 +124,7 @@ enum Action: Equatable {
         }
     }
 
-    private static let fixed: [String: Action] = [
+    static let fixedTable: [String: Action] = [
         "togglecapslock": .toggleCapsLock,
         "escape": .escape,
         "none": Action.none,
@@ -172,9 +166,6 @@ enum Action: Equatable {
         "copy": .copy,
         "paste": .paste,
         "pasteplain": .pastePlain,
-        "extraclipboard.cut": .extraCut,
-        "extraclipboard.copy": .extraCopy,
-        "extraclipboard.paste": .extraPaste,
         "minimizewindow": .minimizeWindow,
         "reloadconfig": .reloadConfig,
         "translate": .translate,
@@ -206,7 +197,7 @@ enum Action: Equatable {
     static func parse(_ raw: String) -> Action? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let lower = trimmed.lowercased()
-        if let action = fixed[lower] {
+        if let action = fixedTable[lower] {
             return action
         }
         if let kind = argument(of: lower, prefix: "wrapselection("), !kind.isEmpty {
@@ -317,9 +308,6 @@ final class Config {
             ("caps+x", "cut"),
             ("caps+c", "copy"),
             ("caps+v", "paste"),
-            ("caps+alt+x", "extraClipboard.cut"),
-            ("caps+alt+c", "extraClipboard.copy"),
-            ("caps+alt+v", "extraClipboard.paste")
         ]
 
         for n in 1...9 {
@@ -464,6 +452,10 @@ final class Config {
         let rawLongPressMs = (root["longPressMs"] as? NSNumber)?.intValue ?? 600
         let longPressMs = min(max(rawLongPressMs, 300), 3000)
         let longPress = (root["longPress"] as? String) ?? "switchInputSource"
+        if longPress != "switchInputSource" {
+            // 目前只有一种长按动作；写别的值不会生效，明确告警而不是静默
+            Log.warn("longPress unsupported value=\(longPress) (only switchInputSource)")
+        }
 
         guard let rawBindings = root["bindings"] as? [String: Any] else {
             Log.warn("configLoad failed reason=bindings")
