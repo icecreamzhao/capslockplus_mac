@@ -189,6 +189,11 @@ enum InputSource {
         // 先留证据：故障是偶发的，等它下次发生，这段现场就是唯一的线索
         let before = run("/usr/bin/pgrep", ["-fl", "Input Methods/SCIM"]).map { $0.output.isEmpty ? "(not-running)" : $0.output } ?? "(spawn-failed)"
         Log.info("imeRestart begin reason=\(reason) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) current=\(currentSnapshot()) ime=\(before.replacingOccurrences(of: "\n", with: " | "))")
+        // 把完整现场（全部输入源的 selected/enabled + 前台 App）落进日志：
+        // 故障分两种形态——切源没落地 vs 源是中文但 IME 内部卡英文——这份 dump 是唯一的区分依据
+        for line in diagnose().split(separator: "\n") {
+            Log.info("imeRestart dump | \(line)")
+        }
 
         let killed = (run("/usr/bin/pkill", ["-9", "-f", "/Input Methods/SCIM.app/"])?.status ?? -1) == 0
         Log.info("imeRestart pkill killed=\(killed ? 1 : 0)")
