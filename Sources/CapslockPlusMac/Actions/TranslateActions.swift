@@ -17,6 +17,12 @@ enum TranslateActions {
             return
         }
 
+        // Gecko 的无障碍树是按需建立的：先敲一次门再读，
+        // 否则第一次读到的是"只有窗口和菜单栏"的冷树，会被误判成没选中文字。
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            AX.warmUp(AXUIElementCreateApplication(front.processIdentifier))
+        }
         attemptRead(attempt: 0)
     }
 
@@ -28,7 +34,13 @@ enum TranslateActions {
             perform(text)
             return
         }
-        guard attempt < 4 else {
+        // 冷树（Firefox 树还没建好）值得多等几轮：每次重试都会再敲一次门，树在长
+        let isCold = AX.lastScanCold
+        let maxAttempt = isCold ? 7 : 4
+        if isCold, attempt > 0, attempt < maxAttempt {
+            AX.warmUp(AXUIElementCreateApplication(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0))
+        }
+        guard attempt < maxAttempt else {
             if let text = clipboardFallback() {
                 Log.info("translate source=clipboard attempt=\(attempt + 1)")
                 perform(text)
@@ -40,7 +52,7 @@ enum TranslateActions {
         }
         // 不在 tap 里 sleep，交给主队列稍后重试
         // 退避：150 / 250 / 400 / 600ms，累计约 1.4s —— 双击选词后浏览器发布选区偶尔比这还慢
-        let delays: [Double] = [0.15, 0.25, 0.40, 0.60]
+        let delays: [Double] = [0.15, 0.25, 0.40, 0.60, 0.60, 0.60, 0.60]
         let delay = delays[min(attempt, delays.count - 1)]
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             attemptRead(attempt: attempt + 1)

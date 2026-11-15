@@ -37,6 +37,31 @@ extension AX {
         return deepScan(inApp: app)
     }
 
+    /// 上一次 deepScan 扫到的节点数。Gecko（Firefox）按需建树：
+    /// 树还没建起来时整棵树只有十几个节点（窗口 + 菜单栏），网页区根本不存在，
+    /// 这时"读不到选区"不代表真的没选，要等树建好再读一次。
+    static var lastScanVisited = 0
+    static var lastScanWebAreas = 0
+    static var lastScanCold: Bool { lastScanVisited < 60 && lastScanWebAreas == 0 }
+
+    /// 敲一下门，触发 App 建无障碍树（Chromium 认 AXManualAccessibility，Firefox 靠被查询自启）。
+    /// 必须在真正读之前调用：树是异步建的，先敲再等，比读到空再补救有效。
+    static func warmUp(_ app: AXUIElement) {
+        let manual = AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        var children = 0
+        func walk(_ node: AXUIElement, _ depth: Int) {
+            guard children < 200, depth <= 3 else { return }
+            for child in elementArrayAttribute(node, kAXChildrenAttribute as CFString) ?? [] {
+                children += 1
+                walk(child, depth + 1)
+            }
+        }
+        walk(app, 0)
+        let focused = elementAttribute(app, kAXFocusedUIElementAttribute as CFString)
+        let role = focused.flatMap { stringAttribute($0, kAXRoleAttribute as CFString) } ?? "nil"
+        Log.info("axWarmUp children=\(children) focused=\(role) manualA11y=\(manual.rawValue)")
+    }
+
     /// 遍历某个 App 的窗口树找选区（Safari 的 AXWebArea 常常只有 marker 范围里有文本）。
     static func deepScan(inApp app: AXUIElement) -> String? {
         var pid: pid_t = 0
@@ -45,6 +70,7 @@ extension AX {
         let front = NSWorkspace.shared.frontmostApplication
         Log.warn("axSelection deep start apppid=\(pid) appActive=\(NSApp.isActive ? 1 : 0) panelShown=\(TranslatePanel.shared.isShowing ? 1 : 0) front=\(front?.bundleIdentifier ?? "?") frontpid=\(front?.processIdentifier ?? 0)")
         var visited = 0
+        var webAreas = 0
         var found: String?
         let deadline = Date().addingTimeInterval(0.40)   // 主线程上跑，必须有时间预算
 
@@ -67,6 +93,9 @@ extension AX {
             index += 1
             visited += 1
 
+            if (stringAttribute(element, kAXRoleAttribute as CFString) ?? "") == "AXWebArea" {
+                webAreas += 1
+            }
             let selection = copyAttribute(element, kAXSelectedTextAttribute as CFString)
             if let raw = selection.value as? String, selection.status == .success {
                 let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -85,10 +114,12 @@ extension AX {
             }
         }
 
+        lastScanVisited = visited
+        lastScanWebAreas = webAreas
         if let text = found {
-            Log.info("axSelection deep hit apppid=\(pid) scanned=\(visited) len=\(text.count)")
+            Log.info("axSelection deep hit apppid=\(pid) scanned=\(visited) webAreas=\(webAreas) len=\(text.count)")
         } else {
-            Log.warn("axSelection deep miss apppid=\(pid) scanned=\(visited)")
+            Log.warn("axSelection deep miss apppid=\(pid) scanned=\(visited) webAreas=\(webAreas) cold=\(lastScanCold ? 1 : 0)")
         }
         return found
     }
