@@ -50,6 +50,8 @@ open /Applications/CapslockPlusMac.app
 其他    f5 重载键位表   alt+r 修复输入法（卡英文时用）   esc / ` / tab 直接吞掉
 单按 Caps = 切换大小写
 长按 Caps 0.6 秒 = 切换输入法（到 0.6s 当场触发一次，之后仍可按着继续用组合键）
+           切换成功后屏幕底部会短暂显示切换到的输入法名字；`keymap.json` 里 `imeToastMs`
+           可调停留毫秒（默认 700，0 = 不显示）
 ```
 
 动作名与参数化写法（`moveUp(20)`、`send(cmd+shift+t)`、`wrapSelection(paren)` 等）见

@@ -27,6 +27,8 @@ final class Config {
     private(set) var clipboardFallbackApps: Set<String> = []
     /// 浮层渲染模式："html"（默认，原版词条排版）或 "text"（纯文本兜底）。
     private(set) var panelRenderMode: String = "html"
+    /// 长按切输入法成功后，底部 HUD 停留毫秒数；0 = 不弹。
+    private(set) var imeToastMs: Int = 700
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -181,6 +183,8 @@ final class Config {
         panelAutoHideMs = min(max(autoHide, 0), 600_000)
         clipboardFallbackApps = Set((root["clipboardFallbackApps"] as? [String]) ?? [])
         panelRenderMode = (root["panelRenderMode"] as? String)?.lowercased() ?? "html"
+        let toastMs = (root["imeToastMs"] as? NSNumber)?.intValue ?? 700
+        imeToastMs = min(max(toastMs, 0), 3000)
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action
@@ -234,7 +238,7 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode)")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs)")
         return true
     }
 

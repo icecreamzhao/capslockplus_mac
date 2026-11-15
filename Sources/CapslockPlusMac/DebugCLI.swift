@@ -77,6 +77,20 @@ enum DebugCLI {
         }
 
 
+        if let index = CommandLine.arguments.firstIndex(of: "--toast-test") {
+            let text = index + 1 < CommandLine.arguments.count
+                ? CommandLine.arguments[index + 1] : "简体拼音"
+            NSApplication.shared.setActivationPolicy(.accessory)
+            StatusToast.shared.show(text, detail: nil, ms: 2000)
+            // CLI 里没有 run loop，自己泵一会儿，否则窗口还没画完就退出了
+            let deadline = Date().addingTimeInterval(2.3)
+            while Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            print("toast-test ok text=\(text)")
+            return 0
+        }
+
         if CommandLine.arguments.contains("--panel-clamp-selftest") {
             let delegate = PanelClampSelfTestDelegate()
             NSApplication.shared.delegate = delegate
@@ -432,6 +446,22 @@ func runSelfTest() -> Int32 {
         }
         if roundTrip != action {
             failures.append("name drift key=\(key) name=\(action.name) -> \(roundTrip.name)")
+        }
+    }
+
+    // HUD 夹取：主屏、副屏、超长输入法名字都不能露到屏幕外
+    let screens = [CGRect(x: 0, y: 0, width: 1440, height: 875),
+                   CGRect(x: -1920, y: 0, width: 1920, height: 1080),
+                   CGRect(x: 0, y: 0, width: 320, height: 240)]
+    let sizes = [CGSize(width: 40, height: 18), CGSize(width: 260, height: 18),
+                 CGSize(width: 4000, height: 18)]
+    for visible in screens {
+        for size in sizes {
+            let frame = StatusToast.frame(textSize: size, visible: visible,
+                                          paddingX: 22, height: 40, bottomInset: 90)
+            if !visible.contains(frame) {
+                failures.append("toast out of visible \(Int(size.width)) in \(Int(visible.width))x\(Int(visible.height))")
+            }
         }
     }
 

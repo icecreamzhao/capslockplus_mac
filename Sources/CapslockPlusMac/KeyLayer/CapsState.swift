@@ -156,6 +156,11 @@ final class CapsState {
         InputSource.switchNext { name in
             if let name = name {
                 Log.info("longpress \(elapsedMs)ms -> switchInputSource -> \(name)")
+                // 只报"切完之后的真实状态"：name 来自 verify 通过后的 currentName()，
+                // 不是"打算切到谁"。切失败（nil）不弹，避免给出假的成功反馈。
+                let caps = HIDCapsLock.shared.isLocked
+                StatusToast.shared.show(name, detail: caps ? "CAPS 开" : nil,
+                                        ms: Config.shared.imeToastMs)
             } else {
                 Log.warn("longpress \(elapsedMs)ms -> switchInputSource failed")
             }
