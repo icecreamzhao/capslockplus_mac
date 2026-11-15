@@ -81,6 +81,14 @@ enum DebugCLI {
         }
 
 
+        if let index = CommandLine.arguments.firstIndex(of: "--ax-tree"),
+           index + 1 < CommandLine.arguments.count {
+            let report = runAXTree(bundleID: CommandLine.arguments[index + 1])
+            try? report.write(toFile: "/tmp/axtree.txt", atomically: true, encoding: .utf8)
+            print(report)
+            return 0
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--caps-set"),
            index + 1 < CommandLine.arguments.count {
             // 受控实验用：直接写 HID 锁定状态（不合成按键），读回真实值
@@ -650,4 +658,70 @@ final class PanelClampSelfTestDelegate: NSObject, NSApplicationDelegate {
             exit(inside ? 0 : 1)
         }
     }
+}
+
+
+// MARK: - AX 树形状探针
+//
+// 用途：某个 App"读不到选区"时，先看它到底暴露了多少节点、有没有 AXWebArea。
+// Gecko（Firefox）只有在检测到无障碍客户端后才建树，构建是异步的，所以这里
+// 分别在"什么都没做 / 设过 AXManualAccessibility / 设过 AXEnhancedUserInterface"之后各走一遍。
+func runAXTree(bundleID: String) -> String {
+    var lines: [String] = []
+    guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first else {
+        return "not-running bundle=\(bundleID)"
+    }
+    let pid = app.processIdentifier
+    let element = AXUIElementCreateApplication(pid)
+    lines.append("bundle=\(bundleID) pid=\(pid) trusted=\(AXIsProcessTrusted() ? 1 : 0)")
+
+    func walk(_ tag: String) {
+        var total = 0
+        var webAreas: [String] = []
+        var roles: [String: Int] = [:]
+        func rec(_ node: AXUIElement, _ depth: Int) {
+            guard total < 600, depth <= 8 else { return }
+            total += 1
+            let role = AX.stringAttribute(node, kAXRoleAttribute as CFString) ?? "?"
+            roles[role, default: 0] += 1
+            if role == "AXWebArea" {
+                let text = AX.stringAttribute(node, kAXSelectedTextAttribute as CFString) ?? "nil"
+                webAreas.append("sel=\(text.count)")
+            }
+            for child in AX.elementArrayAttribute(node, kAXChildrenAttribute as CFString) ?? [] {
+                rec(child, depth + 1)
+            }
+        }
+        rec(element, 0)
+        let top = roles.sorted { $0.value > $1.value }.prefix(6)
+            .map { "\($0.key)×\($0.value)" }.joined(separator: " ")
+        lines.append("\(tag) total=\(total) webAreas=\(webAreas.count) [\(webAreas.joined(separator: ","))] roles: \(top)")
+    }
+
+    func pump(_ seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+    }
+
+    walk("before")
+    let manual = AXUIElementSetAttributeValue(element, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    lines.append("set AXManualAccessibility=\(manual.rawValue)")
+    pump(1.2)
+    walk("after-manual")
+    let enhanced = AXUIElementSetAttributeValue(element, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+    lines.append("set AXEnhancedUserInterface=\(enhanced.rawValue)")
+    pump(1.2)
+    walk("after-enhanced")
+
+    if let focused = AX.elementAttribute(element, kAXFocusedUIElementAttribute as CFString) {
+        let role = AX.stringAttribute(focused, kAXRoleAttribute as CFString) ?? "?"
+        let attrs = AX.attributeNames(of: focused).prefix(14).joined(separator: ",")
+        lines.append("focused role=\(role) attrs=[\(attrs)]")
+    } else {
+        lines.append("focused=nil")
+    }
+    lines.append("reader=\(AX.selectedText() ?? "nil")")
+    return lines.joined(separator: "\n")
 }
