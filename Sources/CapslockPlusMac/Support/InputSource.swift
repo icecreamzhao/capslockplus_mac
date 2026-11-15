@@ -64,8 +64,9 @@ enum InputSource {
             }
 
             let caps = HIDCapsLock.shared.isLocked ? 1 : 0
+            let front = AppFocus.frontBundleID()
             let status = TISSelectInputSource(target)
-            Log.info("inputsource switch from=\(fromID ?? "unknown") to=\(targetID) caps=\(caps) status=\(status)")
+            Log.info("inputsource switch from=\(fromID ?? "unknown") to=\(targetID) caps=\(caps) front=\(front) status=\(status)")
 
             guard status == noErr else {
                 completion?(nil)
@@ -82,7 +83,7 @@ enum InputSource {
             let now = currentID()
             if now == targetID {
                 let stage = attempt == 1 ? "ok" : "retry-ok"
-                Log.info("inputsource switched to=\(targetID) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) verify=\(stage)")
+                Log.info("inputsource switched to=\(targetID) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) front=\(AppFocus.frontBundleID()) verify=\(stage)")
                 completion?(currentName() ?? targetID)
                 return
             }
@@ -145,35 +146,108 @@ enum InputSource {
         }
     }
 
-    /// 杀掉输入法进程再重选中文源——「输入源是中文、caps 是关的，但打出来还是英文」的复位手段。
+    /// 输入法卡住时的修复。按形态分两条路，不要一上来就杀进程：
     ///
-    /// 实测取证：故障时 `imeDiagnose` 显示 `current=com.apple.inputmethod.SCIM.ITABC (简体拼音) caps=0`、
-    /// ABC `selected=0`，也就是说 TIS 层面完全正常；卡住的是苹果拼音 IME 进程内部的中/英状态。
-    /// 这个状态在 TIS 里没有对应的输入模式可选中（全量枚举 331 个输入源，SCIM 只暴露 Pinyin 一个
-    /// keyboard input mode，没有 English 变体），也没有公开 API 读写；重选同源、切到 ABC 再切回来都不清它。
-    /// 唯一确定的复位是重建 IME 进程：imklaunchagent 会在下一次按键时拉起一个干净实例，中/英回到中文。
-    /// 必须 SIGKILL：实测 `pkill -f`（SIGTERM）返回 0、进程却活着（pid 不变），IME 自己拦了 SIGTERM。
-    /// 代价：正在进行的拼音组合会丢，重建那一下约 1 秒没有输入法。
+    /// 1. **源已是中文 + IME 进程活着** → 卡的是**前台 App 的输入上下文**。
+    ///    实测 Terminal.app：TIS 是「简体拼音」、iPhone Mirroring 有候选框，唯独 Terminal 仍然按 ABC
+    ///    收字符；切到别处打几个字再切回来才恢复。这种情况只做一次焦点往返，让它重建上下文，
+    ///    不杀进程（杀了会丢正在拼的字，还空档约 1 秒）。
+    /// 2. **源不是中文 / IME 没在跑** → 重建进程：SIGKILL（SIGTERM 被 IME 吞掉）→ 等旧 pid 消失
+    ///    → 重选中文源 → 0.45s / 1.1s 两次确认。
+    ///
+    /// 为什么要二次确认：HIToolbox 在 IME 进程死掉后会把全局源**回落成 ABC**。
+    /// 旧实现固定 0.8s 重选一次就宣布成功，日志里出现过 10 秒后 `current=com.apple.keylayout.ABC`，
+    /// 也就是"修完了"其实没修。
     static func restartIMEServer(reason: String = "menu", completion: ((String) -> Void)? = nil) {
-        // 先留证据：故障是偶发的，等它下次发生，这段现场就是唯一的线索
-        let before = run("/usr/bin/pgrep", ["-fl", "Input Methods/SCIM"]).map { $0.output.isEmpty ? "(not-running)" : $0.output } ?? "(spawn-failed)"
-        Log.info("imeRestart begin reason=\(reason) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) current=\(currentSnapshot()) ime=\(before.replacingOccurrences(of: "\n", with: " | "))")
-        // 把完整现场（全部输入源的 selected/enabled + 前台 App）落进日志：
-        // 故障分两种形态——切源没落地 vs 源是中文但 IME 内部卡英文——这份 dump 是唯一的区分依据
+        let front = AppFocus.frontBundleID()
+        let pidBefore = imePID()
+        Log.info("imeRestart begin reason=\(reason) front=\(front) caps=\(HIDCapsLock.shared.isLocked ? 1 : 0) current=\(currentSnapshot()) imePid=\(pidBefore.map(String.init) ?? "none")")
         for line in diagnose().split(separator: "\n") {
             Log.info("imeRestart dump | \(line)")
         }
 
-        let killed = (run("/usr/bin/pkill", ["-9", "-f", "/Input Methods/SCIM.app/"])?.status ?? -1) == 0
-        Log.info("imeRestart pkill killed=\(killed ? 1 : 0)")
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            forceChineseInput { result in
-                let line = "imeRestart killed=\(killed ? 1 : 0) \(result) now=\(currentSnapshot())"
+        let current = currentID() ?? ""
+        if current.contains("inputmethod"), pidBefore != nil {
+            Log.info("imeRestart mode=context front=\(front) reason=source-ok-ime-alive")
+            nudge(front: front, prefix: "imeRestart") { result in
+                let line = "imeRestart mode=context front=\(front) result=\(result)"
                 Log.info(line)
                 completion?(line)
             }
+            return
         }
+
+        let killed = (run("/usr/bin/pkill", ["-9", "-f", "/Input Methods/SCIM.app/"])?.status ?? -1) == 0
+        Log.info("imeRestart pkill killed=\(killed ? 1 : 0) pid=\(pidBefore.map(String.init) ?? "none")")
+
+        waitForIMEGone(oldPid: pidBefore, deadline: Date().addingTimeInterval(2.5)) {
+            forceChineseInput { result in
+                Log.info("imeRestart reselect \(result)")
+                confirmChinese(attempt: 1, front: front, killed: killed, completion: completion)
+            }
+        }
+    }
+
+    /// 等旧 IME 进程真的退出，再重选——旧的 0.8s 固定等待会撞在进程拆除过程中
+    private static func waitForIMEGone(oldPid: pid_t?, deadline: Date, then: @escaping () -> Void) {
+        guard let oldPid = oldPid else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: then)
+            return
+        }
+        if imePID() != oldPid || Date() >= deadline {
+            Log.info("imeRestart old-pid-gone pid=\(oldPid) now=\(imePID().map(String.init) ?? "none")")
+            then()
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            waitForIMEGone(oldPid: oldPid, deadline: deadline, then: then)
+        }
+    }
+
+    private static func confirmChinese(attempt: Int, front: String, killed: Bool,
+                                       completion: ((String) -> Void)?) {
+        let delay: TimeInterval = attempt == 1 ? 0.45 : 1.1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let current = currentID() ?? "?"
+            let isIME = current.contains("inputmethod")
+            Log.info("imeRestart confirm attempt=\(attempt) current=\(current) imePid=\(imePID().map(String.init) ?? "none")")
+            if isIME || attempt >= 3 {
+                finishRestart(killed: killed, front: front, fellBack: !isIME, completion: completion)
+                return
+            }
+            Log.warn("imeRestart fallback current=\(current) -> reselect attempt=\(attempt)")
+            forceChineseInput { _ in
+                confirmChinese(attempt: attempt + 1, front: front, killed: killed, completion: completion)
+            }
+        }
+    }
+
+    private static func finishRestart(killed: Bool, front: String, fellBack: Bool,
+                                      completion: ((String) -> Void)?) {
+        let line = "imeRestart killed=\(killed ? 1 : 0) fallback=\(fellBack ? 1 : 0) now=\(currentSnapshot()) front=\(front)"
+        Log.info(line)
+        nudge(front: front, prefix: "imeRestart") { result in
+            completion?(result == "noop" ? line : "\(line) nudge=\(result)")
+        }
+    }
+
+    /// 对「切源后输入上下文不跟」的 App（配置 imeNudgeApps）做一次焦点往返
+    private static func nudge(front: String, prefix: String, completion: @escaping (String) -> Void) {
+        guard Config.shared.imeNudgeApps.contains(front) else {
+            completion("noop")
+            return
+        }
+        AppFocus.bounce(bundleID: front) { result in
+            Log.info("\(prefix) nudge app=\(front) \(result)")
+            completion(result)
+        }
+    }
+
+    private static func imePID() -> pid_t? {
+        guard let out = run("/usr/bin/pgrep", ["-f", "/Input Methods/SCIM.app/"])?.output, !out.isEmpty else {
+            return nil
+        }
+        return out.split(separator: "\n").first.flatMap { pid_t($0.trimmingCharacters(in: .whitespaces)) }
     }
 
     /// 跑一个外部命令，返回退出码 + stdout。用来取 IME 进程现场和发信号。
