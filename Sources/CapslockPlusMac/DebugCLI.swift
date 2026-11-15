@@ -81,6 +81,42 @@ enum DebugCLI {
         }
 
 
+        if let index = CommandLine.arguments.firstIndex(of: "--caps-set"),
+           index + 1 < CommandLine.arguments.count {
+            // 受控实验用：直接写 HID 锁定状态（不合成按键），读回真实值
+            let want = CommandLine.arguments[index + 1] == "1"
+            let now = CapsState.setLocked(want, reason: "cli-caps-set")
+            print("caps-set want=\(want ? 1 : 0) now=\(now ? 1 : 0)")
+            return 0
+        }
+
+        if let index = CommandLine.arguments.firstIndex(of: "--ime-switch-test") {
+            // 受控复现用：连续切 N 次输入源，间隔 gapMs。
+            // 用途：验证"两次切源间隔太短"是不是 Terminal 卡住英文的触发条件。
+            let count = index + 1 < CommandLine.arguments.count
+                ? (Int(CommandLine.arguments[index + 1]) ?? 2) : 2
+            let gapMs = index + 2 < CommandLine.arguments.count
+                ? (Int(CommandLine.arguments[index + 2]) ?? 1000) : 1000
+            var done = 0
+            func step() {
+                guard done < count else { return }
+                done += 1
+                InputSource.switchNext { name in
+                    print("switch #\(done) -> \(name ?? "failed")")
+                    Log.info("imeSwitchTest #\(done)/\(count) -> \(name ?? "failed") gapMs=\(gapMs) front=\(AppFocus.frontBundleID())")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(gapMs)) { step() }
+                }
+            }
+            print("ime-switch-test count=\(count) gapMs=\(gapMs) front=\(AppFocus.frontBundleID())")
+            step()
+            let deadline = Date().addingTimeInterval(Double(count) * (Double(gapMs) / 1000 + 0.7) + 1)
+            while Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+            print("ime-switch-test done")
+            return 0
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--toast-test") {
             let text = index + 1 < CommandLine.arguments.count
                 ? CommandLine.arguments[index + 1] : "简体拼音"
