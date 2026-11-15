@@ -458,9 +458,22 @@ func runSelfTest() -> Int32 {
     for visible in screens {
         for size in sizes {
             let frame = StatusToast.frame(textSize: size, visible: visible,
-                                          paddingX: 22, height: 40, bottomInset: 90)
+                                          paddingX: 22, height: 40)
             if !visible.contains(frame) {
                 failures.append("toast out of visible \(Int(size.width)) in \(Int(visible.width))x\(Int(visible.height))")
+            }
+            // 文字必须放得下（左右各 8pt 内边距），否则界面上就是 "A…"
+            // 只在"没被最大宽度夹住"时断言：超长文字本来就该截断
+            let roomNeeded = ceil(size.width) + 44 + 6
+            if roomNeeded <= visible.width - 40 {
+                let textRoom = frame.width - 16
+                if textRoom < ceil(size.width) {
+                    failures.append("toast text clipped \(Int(size.width)) -> \(Int(textRoom))")
+                }
+            }
+            // 居中：横竖中心都要贴着屏幕中心（夹取没触发的前提下）
+            if visible.width > 400 && abs(frame.midX - visible.midX) > 0.5 {
+                failures.append("toast not centered x")
             }
         }
     }

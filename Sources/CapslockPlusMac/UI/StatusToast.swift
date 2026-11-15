@@ -25,7 +25,8 @@ final class StatusToast {
     private let font = NSFont.systemFont(ofSize: 15, weight: .semibold)
     private let height: CGFloat = 40
     private let paddingX: CGFloat = 22
-    private let bottomInset: CGFloat = 90
+    /// 胶囊内部文字左右各留的空隙（比外层 padding 小，保证有富余不出省略号）
+    private let textInset: CGFloat = 8
 
     private init() {}
 
@@ -43,11 +44,12 @@ final class StatusToast {
         let size = (body as NSString).size(withAttributes: [.font: font])
         let screen = screenUnderMouse()
         let frame = StatusToast.frame(textSize: size, visible: screen.visibleFrame,
-                                      paddingX: paddingX, height: height, bottomInset: bottomInset)
+                                      paddingX: paddingX, height: height)
 
         let panel = ensurePanel(width: frame.width)
         label?.stringValue = body
         panel.setFrame(frame, display: true)
+        layout(panel: panel, width: frame.width)
         panel.alphaValue = 0
         panel.orderFrontRegardless()
 
@@ -75,13 +77,14 @@ final class StatusToast {
 
     // MARK: - 布局（纯函数，自检里断言不会跑到屏幕外）
 
+    /// 位置：屏幕正中间（横竖都居中），再夹回 visibleFrame。
+    /// 宽度留 6pt 余量：NSString.size 的量测会略偏小，正好贴边就会被截成 "A…"。
     static func frame(textSize: CGSize, visible: CGRect,
-                      paddingX: CGFloat, height: CGFloat, bottomInset: CGFloat) -> CGRect {
+                      paddingX: CGFloat, height: CGFloat) -> CGRect {
         let maxWidth = max(visible.width - 40, 120)
-        let width = min(textSize.width + paddingX * 2, maxWidth)
+        let width = min(ceil(textSize.width) + paddingX * 2 + 6, maxWidth)
         var x = visible.midX - width / 2
-        var y = visible.minY + bottomInset
-        // 夹回屏幕内：副屏、屏幕旋转或 visibleFrame 很小的时候也不能露到外面
+        var y = visible.midY - height / 2
         x = min(max(x, visible.minX + 12), max(visible.maxX - width - 12, visible.minX + 12))
         y = min(max(y, visible.minY + 12), max(visible.maxY - height - 12, visible.minY + 12))
         return CGRect(x: x, y: y, width: width, height: height)
@@ -118,7 +121,7 @@ final class StatusToast {
         label.textColor = .white
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
-        label.frame = NSRect(x: paddingX, y: (height - 18) / 2, width: width - paddingX * 2, height: 18)
+        label.frame = NSRect(x: textInset, y: (height - 18) / 2, width: width - textInset * 2, height: 18)
         label.autoresizingMask = [.width]
         card.addSubview(label)
 
@@ -126,5 +129,13 @@ final class StatusToast {
         self.panel = panel
         self.label = label
         return panel
+    }
+
+    /// 复用同一个 panel 时宽度会变，这里按新宽度重排一次，
+    /// 不指望 autoresizing：它只会按增量拉伸，窄→宽的来回切换很容易算错。
+    private func layout(panel: NSPanel, width: CGFloat) {
+        panel.contentView?.frame = NSRect(x: 0, y: 0, width: width, height: height)
+        label?.frame = NSRect(x: textInset, y: (height - 18) / 2,
+                              width: width - textInset * 2, height: 18)
     }
 }
