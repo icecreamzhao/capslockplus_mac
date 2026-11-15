@@ -22,11 +22,20 @@ final class StatusToast {
     private var label: NSTextField?
     private var hideWork: DispatchWorkItem?
 
-    private let font = NSFont.systemFont(ofSize: 15, weight: .semibold)
-    private let height: CGFloat = 40
-    private let paddingX: CGFloat = 22
-    /// 胶囊内部文字左右各留的空隙（比外层 padding 小，保证有富余不出省略号）
-    private let textInset: CGFloat = 8
+    /// 尺寸集中在这里：自检也用同一份，改字体大小不会让断言悄悄失配
+    enum Metrics {
+        static let font = NSFont.systemFont(ofSize: 19, weight: .semibold)
+        static let height: CGFloat = 46
+        static let paddingX: CGFloat = 26
+        /// 胶囊内部文字左右各留的空隙（比外层 padding 小，保证有富余不出省略号）
+        static let textInset: CGFloat = 10
+        static let labelHeight: CGFloat = 24
+    }
+
+    private let font = Metrics.font
+    private let height = Metrics.height
+    private let paddingX = Metrics.paddingX
+    private let textInset = Metrics.textInset
 
     private init() {}
 
@@ -110,10 +119,13 @@ final class StatusToast {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle, .transient]
 
-        let card = NSView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        // 毛玻璃而不是纯色块：能透出背后的内容，又不至于看不清字
+        let card = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        card.material = .hudWindow
+        card.blendingMode = .behindWindow
+        card.state = .active
         card.wantsLayer = true
-        card.layer?.backgroundColor = NSColor(calibratedWhite: 0.12, alpha: 0.9).cgColor
-        card.layer?.cornerRadius = 12
+        card.layer?.cornerRadius = 14
         card.layer?.masksToBounds = true
 
         let label = NSTextField(labelWithString: "")
@@ -121,8 +133,16 @@ final class StatusToast {
         label.textColor = .white
         label.alignment = .center
         label.lineBreakMode = .byTruncatingTail
-        label.frame = NSRect(x: textInset, y: (height - 18) / 2, width: width - textInset * 2, height: 18)
+        label.frame = NSRect(x: textInset, y: (height - Metrics.labelHeight) / 2,
+                             width: width - textInset * 2, height: Metrics.labelHeight)
         label.autoresizingMask = [.width]
+        label.shadow = {
+            let shadow = NSShadow()
+            shadow.shadowColor = NSColor(white: 0, alpha: 0.45)
+            shadow.shadowBlurRadius = 3
+            shadow.shadowOffset = NSSize(width: 0, height: -1)
+            return shadow
+        }()
         card.addSubview(label)
 
         panel.contentView = card
@@ -135,7 +155,7 @@ final class StatusToast {
     /// 不指望 autoresizing：它只会按增量拉伸，窄→宽的来回切换很容易算错。
     private func layout(panel: NSPanel, width: CGFloat) {
         panel.contentView?.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        label?.frame = NSRect(x: textInset, y: (height - 18) / 2,
-                              width: width - textInset * 2, height: 18)
+        label?.frame = NSRect(x: textInset, y: (height - Metrics.labelHeight) / 2,
+                              width: width - textInset * 2, height: Metrics.labelHeight)
     }
 }
