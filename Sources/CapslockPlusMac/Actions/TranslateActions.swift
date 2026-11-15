@@ -37,8 +37,10 @@ enum TranslateActions {
         // 冷树（Firefox 树还没建好）值得多等几轮：每次重试都会再敲一次门，树在长
         let isCold = AX.lastScanCold
         let maxAttempt = isCold ? 7 : 4
-        if isCold, attempt > 0, attempt < maxAttempt {
-            AX.warmUp(AXUIElementCreateApplication(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0))
+        if isCold, attempt > 0, attempt < maxAttempt,
+           let front = NSWorkspace.shared.frontmostApplication,
+           front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            AX.warmUp(AXUIElementCreateApplication(front.processIdentifier))
         }
         guard attempt < maxAttempt else {
             if let text = clipboardFallback() {
