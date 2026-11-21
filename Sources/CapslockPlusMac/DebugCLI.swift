@@ -781,16 +781,20 @@ func runProgressSelfTest() -> Int32 {
     }
 
     let asyncIndicator = MenuBarProgressIndicator()
-    var handle: MenuBarProgressIndicator.Task? = asyncIndicator.begin(label: "async")
-    DispatchQueue.global().async { handle?.end() }
-    handle = nil                                // 收尾动作还在路上，句柄已经没了
+    // 生产代码的真实时序：后台队列里 begin → end，句柄随即离开作用域被释放，
+    // 而 finish 还排在主线程队列上。弱引用版本在这里会丢掉收尾，图标就停在进度条上。
+    DispatchQueue.global().async {
+        let task = asyncIndicator.begin(label: "async")
+        task.end()
+    }
     pump(0.3)
     expect("asyncEndAfterRelease", !asyncIndicator.isActive)
 
     let leakIndicator = MenuBarProgressIndicator()
-    var doomed: MenuBarProgressIndicator.Task? = leakIndicator.begin(label: "doomed")
-    DispatchQueue.global().async { _ = doomed }  // 后台线程持有并释放
-    doomed = nil
+    // 拿到句柄直接丢弃：deinit 发生在后台线程，收尾同样得回到主线程
+    DispatchQueue.global().async {
+        _ = leakIndicator.begin(label: "doomed")
+    }
     pump(0.3)
     expect("deinitOnBackgroundThread", !leakIndicator.isActive)
 
