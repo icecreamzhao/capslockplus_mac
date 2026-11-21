@@ -252,7 +252,9 @@ final class GifTool {
         // -progress pipe:1：让 ffmpeg 把编码进度按行吐到 stdout（-nostats 关掉人类可读的那份），
         // stderr 仍然只留错误信息，两者分开才能既报进度又报错。
         let total = duration(of: input)
-        let first = runStreaming(ffmpeg, ["-v", "error", "-nostats", "-progress", "pipe:1",
+        // -stats_period 0.2：默认每 0.5s 才吐一次，短片段等于只报个尾数，进度条会突然跳满
+        let first = runStreaming(ffmpeg, ["-v", "error", "-nostats", "-stats_period", "0.2",
+                                          "-progress", "pipe:1",
                                           "-y", "-i", input.path,
                                           "-vf", filter, "-loop", "0", temp.path]) { line in
             guard let total, total > 0, let onProgress else { return }
