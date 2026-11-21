@@ -53,7 +53,8 @@ final class GifTool {
         var lines = ["PATH=\(ProcessInfo.processInfo.environment["PATH"] ?? "(空)")"]
         for (name, required) in [(Env.ffmpeg, "必需"), (Env.gifsicle, "可选")] {
             if let path = locate(name) {
-                let out = run(path, ["-version"]).err
+                // ffmpeg 认 -version，gifsicle 只认 --version（-version 会被拆成 -v -e -r）
+                let out = run(path, [name == Env.gifsicle ? "--version" : "-version"]).err
                     .split(separator: "\n").first.map(String.init) ?? ""
                 lines.append("\(name)(\(required))=\(path)  \(out.prefix(70))")
             } else {
@@ -126,8 +127,9 @@ final class GifTool {
     /// 返回 true 表示"不装，直接转换"；false 表示用户要先去装，退出不转。
     private func promptOptionalTool() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "没装 gifsicle，转出来的 GIF 会大 30~40%"
-        alert.informativeText = "装上只是体积更小，功能完全一样。\n\n"
+        alert.messageText = "没装 gifsicle，转出来的 GIF 会大一些"
+        alert.informativeText = "装上只是体积更小，功能完全一样。"
+            + "界面类录屏（大面积静止）通常能再小 20~40%，动作多的视频只有几个百分点。\n\n"
             + "安装命令：\(Env.optionalInstallCommand)\n\n"
             + "选「复制安装命令」会把它放进剪贴板，然后退出（装完再点一次菜单即可）。"
         alert.alertStyle = .informational
