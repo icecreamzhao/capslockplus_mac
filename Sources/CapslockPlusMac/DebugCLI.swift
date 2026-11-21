@@ -771,8 +771,31 @@ func runProgressSelfTest() -> Int32 {
     indicator.begin(label: "C")
     expect("deinitEnds", !indicator.isActive)
 
+    // 回归：end() 在后台队列异步收尾时，句柄可能立刻被释放。
+    // 这里就是之前"转完图标卡住不变回来"的真凶：异步闭包弱持有 self，句柄一释放，finish 永远不执行。
+    func pump(_ seconds: TimeInterval) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+    }
+
+    let asyncIndicator = MenuBarProgressIndicator()
+    var handle: MenuBarProgressIndicator.Task? = asyncIndicator.begin(label: "async")
+    DispatchQueue.global().async { handle?.end() }
+    handle = nil                                // 收尾动作还在路上，句柄已经没了
+    pump(0.3)
+    expect("asyncEndAfterRelease", !asyncIndicator.isActive)
+
+    let leakIndicator = MenuBarProgressIndicator()
+    var doomed: MenuBarProgressIndicator.Task? = leakIndicator.begin(label: "doomed")
+    DispatchQueue.global().async { _ = doomed }  // 后台线程持有并释放
+    doomed = nil
+    pump(0.3)
+    expect("deinitOnBackgroundThread", !leakIndicator.isActive)
+
     if failures.isEmpty {
-        print("progress selftest OK (\(9) 组几何 + 4 组生命周期)")
+        print("progress selftest OK (\(9) 组几何 + \(6) 组生命周期)")
         return 0
     }
     for failure in failures { print("FAIL \(failure)") }

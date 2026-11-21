@@ -36,24 +36,36 @@ final class MenuBarProgressIndicator {
         func update(_ fraction: Double?) {
             guard !ended else { return }
             let identifier = id
-            onMain { [weak self] in self?.owner?.update(id: identifier, fraction: fraction) }
+            let target = owner            // 强持有：句柄可能在这一行之后就没人引用了
+            onMain { target?.update(id: identifier, fraction: fraction) }
         }
 
         func end() {
             guard !ended else { return }
             ended = true
             let identifier = id
-            onMain { [weak self] in self?.owner?.finish(id: identifier) }
+            let target = owner
+            onMain { target?.finish(id: identifier) }
         }
 
-        /// 主线程上直接干，后台队列上异步切回主线程（不阻塞转码）
+        /// 主线程上直接干，后台队列上异步切回主线程（不阻塞转码）。
+        /// 注意闭包捕获的是 owner 的强引用，不是 self —— 释放句柄不能把收尾动作一起丢掉。
         private func onMain(_ work: @escaping () -> Void) {
             if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
         }
 
         deinit {
-            // 忘了 end 的情况：至少别把状态栏永久占住
-            if !ended { owner?.finish(id: id) }
+            // 忘了 end 的情况：至少别把状态栏永久占住。
+            // deinit 可能发生在任意线程，UI 收尾必须走主线程，且不能靠弱引用的 self。
+            guard !ended else { return }
+            ended = true
+            let identifier = id
+            let target = owner
+            if Thread.isMainThread {
+                target?.finish(id: identifier)
+            } else {
+                DispatchQueue.main.async { target?.finish(id: identifier) }
+            }
         }
     }
 
@@ -106,6 +118,7 @@ final class MenuBarProgressIndicator {
 
     fileprivate func finish(id: UUID) {
         entries.removeAll { $0.id == id }
+        Log.info("progressBar finish remaining=\(entries.count)")
         if entries.isEmpty {
             stopTicker()
             restore()
@@ -142,7 +155,12 @@ final class MenuBarProgressIndicator {
     }
 
     private func restore() {
-        guard let button = item?.button else { return }
+        guard let button = item?.button else {
+            // CLI / 未 attach 的场景没有状态栏，静默即可
+            if item != nil { Log.warn("progressBar restore skipped: no button") }
+            return
+        }
+        Log.info("progressBar restore image=\(originalImage == nil ? "nil" : "ok")")
         button.image = originalImage
         button.toolTip = originalToolTip ?? "Capslock+"
     }

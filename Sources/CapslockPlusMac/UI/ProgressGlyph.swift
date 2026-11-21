@@ -11,7 +11,9 @@ enum ProgressGlyph {
         /// 菜单栏只有 22pt 高，再大就被切
         var size = NSSize(width: 24, height: 14)
         var inset = NSEdgeInsets(top: 4, left: 1.5, bottom: 4, right: 1.5)
-        var trackAlpha: CGFloat = 0.45
+        var trackAlpha: CGFloat = 0.30
+        /// 醒目的橙：浅色 / 深色菜单栏上都能一眼看到，又不像纯红那样像报错
+        var tint: NSColor = .systemOrange
         /// 不定态色块宽度（占可用宽度的比例）
         var marqueeWidth: Double = 0.45
         /// 进度为 0 时也留一点可见宽度，否则看起来像没开始
@@ -45,8 +47,9 @@ enum ProgressGlyph {
 
     static func image(fraction: Double?, phase: Double,
                       size: NSSize? = nil,
-                      tint: NSColor = .controlAccentColor) -> NSImage {
+                      tint: NSColor? = nil) -> NSImage {
         let metrics = Metrics()
+        let color = tint ?? metrics.tint
         let canvas = size ?? metrics.size
         return NSImage(size: canvas, flipped: false) { rect in
             let track = trackRect(in: rect, metrics: metrics)
@@ -56,7 +59,7 @@ enum ProgressGlyph {
 
             let bar = fraction.map { fillRect(fraction: $0, in: track, metrics: metrics) }
                 ?? marqueeRect(phase: phase, in: track, metrics: metrics)
-            tint.setFill()
+            color.setFill()
             NSBezierPath(roundedRect: bar, xRadius: 2, yRadius: 2).fill()
             return true
         }
