@@ -81,8 +81,8 @@ enum DebugCLI {
             case .success(let bytes):
                 print("gifConvert ok out=\(output.path) bytes=\(bytes)")
                 return 0
-            case .failure(let message):
-                print("gifConvert error=\(message)")
+            case .failure(let failure):
+                print("gifConvert error=\(failure.message)")
                 return 1
             }
         }

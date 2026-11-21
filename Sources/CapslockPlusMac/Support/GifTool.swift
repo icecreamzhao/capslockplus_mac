@@ -17,8 +17,9 @@ final class GifTool {
         static let installCommand = "brew install ffmpeg gifsicle"
     }
 
-    /// 结果：成功时返回输出体积（字节），失败给一句人话
-    typealias Outcome = Result<Int, String>
+    /// 结果：成功时返回输出体积（字节），失败携带一句人话
+    struct Failure: Error { let message: String }
+    typealias Outcome = Result<Int, Failure>
 
     private(set) var isRunning = false
     private let queue = DispatchQueue(label: "capslock.gif.convert", qos: .userInitiated)
@@ -132,9 +133,9 @@ final class GifTool {
                     ok += 1
                     Log.info("gifTool ok in=\(input.lastPathComponent) out=\(output.lastPathComponent) bytes=\(bytes)")
                     if bytes > 10 * 1024 * 1024 { oversized.append(output.lastPathComponent) }
-                case .failure(let message):
-                    failed.append("\(input.lastPathComponent)：\(message)")
-                    Log.warn("gifTool failed in=\(input.lastPathComponent) reason=\(message)")
+                case .failure(let failure):
+                    failed.append("\(input.lastPathComponent)：\(failure.message)")
+                    Log.warn("gifTool failed in=\(input.lastPathComponent) reason=\(failure.message)")
                 }
             }
 
@@ -179,7 +180,7 @@ final class GifTool {
     @discardableResult
     static func convertFile(input: URL, output: URL) -> Outcome {
         guard let ffmpeg = locate(Env.ffmpeg), let gifsicle = locate(Env.gifsicle) else {
-            return .failure("缺少 ffmpeg 或 gifsicle")
+            return .failure(Failure(message: "缺少 ffmpeg 或 gifsicle"))
         }
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("capslock-gif-\(UUID().uuidString).gif")
@@ -192,12 +193,12 @@ final class GifTool {
                                  "-vf", filter, "-loop", "0", temp.path])
         guard first.code == 0 else {
             try? FileManager.default.removeItem(at: temp)
-            return .failure(friendly(first.err))
+            return .failure(Failure(message: friendly(first.err)))
         }
 
         let second = run(gifsicle, ["-O3", "--lossy=80", "--colors", "256", temp.path, "-o", output.path])
         try? FileManager.default.removeItem(at: temp)
-        guard second.code == 0 else { return .failure(friendly(second.err)) }
+        guard second.code == 0 else { return .failure(Failure(message: friendly(second.err))) }
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: output.path)
         return .success((attributes?[.size] as? Int) ?? 0)
