@@ -71,6 +71,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func refreshCapsIndicator() {
+        // 转换进度占用着状态栏图标，这时别用 CAPS 指示把它盖掉
+        guard !MenuBarProgress.shared.isActive else { return }
         let locked = HIDCapsLock.shared.isLocked
         statusItem?.button?.title = locked ? " CAPS" : ""
         statusItem?.button?.imagePosition = locked ? .imageLeft : .imageOnly
@@ -181,6 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         item.menu = menu
         statusItem = item
+        MenuBarProgress.shared.attach(item)
         NotificationCenter.default.addObserver(self, selector: #selector(capsStateChanged),
                                                name: .capsLockStateChanged, object: nil)
         refreshCapsIndicator()

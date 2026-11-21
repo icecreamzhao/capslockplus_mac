@@ -77,7 +77,14 @@ enum DebugCLI {
                 print("gifConvert error=无法确定输出路径")
                 return 2
             }
-            switch GifTool.convertFile(input: input, output: output) {
+            var lastBucket = -1
+            switch GifTool.convertFile(input: input, output: output, onProgress: { fraction in
+                let bucket = Int(fraction * 10)
+                if bucket != lastBucket {
+                    lastBucket = bucket
+                    print("progress=\(bucket * 10)%")
+                }
+            }) {
             case .success(let bytes):
                 print("gifConvert ok out=\(output.path) bytes=\(bytes)")
                 return 0

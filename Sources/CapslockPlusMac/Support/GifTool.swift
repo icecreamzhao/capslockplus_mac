@@ -152,22 +152,28 @@ final class GifTool {
         Log.info("gifTool start n=\(urls.count)")
         queue.async { [weak self] in
             var ok = 0
+            var produced = 0
             var failed: [String] = []
             var oversized: [String] = []
 
+            DispatchQueue.main.async { MenuBarProgress.shared.start() }
+
             for (index, input) in urls.enumerated() {
-                DispatchQueue.main.async {
-                    // ms=0 是"不显示"，要常驻得给一个够长的值，结束时再 dismiss
-                    StatusToast.shared.show("转换中 \(index + 1)/\(urls.count)",
-                                            detail: input.lastPathComponent, ms: 600_000)
-                }
+                // 多文件时按"第几个 + 这个文件自己的进度"折算成总进度
+                let base = Double(index) / Double(urls.count)
+                let span = 1.0 / Double(urls.count)
                 guard let output = Self.uniqueOutput(for: input) else {
                     failed.append("\(input.lastPathComponent)：无法确定输出路径")
                     continue
                 }
-                switch Self.convertFile(input: input, output: output) {
+                switch Self.convertFile(input: input, output: output, onProgress: { local in
+                    DispatchQueue.main.async {
+                        MenuBarProgress.shared.update(base + local * span)
+                    }
+                }) {
                 case .success(let bytes):
                     ok += 1
+                    produced += bytes
                     Log.info("gifTool ok in=\(input.lastPathComponent) out=\(output.lastPathComponent) bytes=\(bytes)")
                     if bytes > 10 * 1024 * 1024 { oversized.append(output.lastPathComponent) }
                 case .failure(let failure):
@@ -178,10 +184,11 @@ final class GifTool {
 
             self?.isRunning = false
             DispatchQueue.main.async {
-                StatusToast.shared.dismiss()
+                MenuBarProgress.shared.stop()
                 if failed.isEmpty {
-                    let extra = oversized.isEmpty ? "" : "；\(oversized.count) 个超过 10MB"
-                    StatusToast.shared.show("已转换 \(ok) 个", detail: "同目录下查看" + extra, ms: 2600)
+                    // 完成提示只留 1 秒：转完了就完了，不需要人点确认
+                    let total = Self.humanSize(bytes: produced)
+                    StatusToast.shared.show("已转换 \(ok) 个", detail: "\(total) · 同目录下", ms: 1000)
                 } else {
                     self?.reportFailure(failed: failed, ok: ok)
                 }
@@ -214,8 +221,24 @@ final class GifTool {
 
     /// 跑两遍调色板：先统计，再抖动。直接转会用固定 256 色，界面大片纯色会起色带。
     /// 宽度只缩不放（素材本来就窄时保持原样），这一点和 scripts/make-gif.sh 一致。
+    static func humanSize(bytes: Int) -> String {
+        if bytes > 1024 * 1024 {
+            return String(format: "%.1fMB", Double(bytes) / 1048576)
+        }
+        return "\(max(bytes / 1024, 1))KB"
+    }
+
+    /// 视频总时长（秒）。拿不到就返回 nil —— 那时进度条退化成滑动动画，不影响转换。
+    static func duration(of input: URL) -> Double? {
+        guard let ffprobe = locate("ffprobe") else { return nil }
+        let out = run(ffprobe, ["-v", "error", "-show_entries", "format=duration",
+                                "-of", "default=noprint_wrappers=1:nokey=1", input.path])
+        return Double(out.err.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
     @discardableResult
-    static func convertFile(input: URL, output: URL) -> Outcome {
+    static func convertFile(input: URL, output: URL,
+                            onProgress: ((Double) -> Void)? = nil) -> Outcome {
         guard let ffmpeg = locate(Env.ffmpeg) else {
             return .failure(Failure(message: "缺少 ffmpeg"))
         }
@@ -226,8 +249,18 @@ final class GifTool {
             + "split[a][b];[a]palettegen=stats_mode=diff:max_colors=256[p];"
             + "[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle"
 
-        let first = run(ffmpeg, ["-v", "error", "-y", "-i", input.path,
-                                 "-vf", filter, "-loop", "0", temp.path])
+        // -progress pipe:1：让 ffmpeg 把编码进度按行吐到 stdout（-nostats 关掉人类可读的那份），
+        // stderr 仍然只留错误信息，两者分开才能既报进度又报错。
+        let total = duration(of: input)
+        let first = runStreaming(ffmpeg, ["-v", "error", "-nostats", "-progress", "pipe:1",
+                                          "-y", "-i", input.path,
+                                          "-vf", filter, "-loop", "0", temp.path]) { line in
+            guard let total, total > 0, let onProgress else { return }
+            guard let range = line.range(of: "out_time_us="),
+                  let micros = Double(line[range.upperBound...]) else { return }
+            let seconds = micros / 1_000_000
+            onProgress(min(seconds / total, 0.99))
+        }
         guard first.code == 0 else {
             try? FileManager.default.removeItem(at: temp)
             return .failure(Failure(message: friendly(first.err)))
@@ -262,6 +295,47 @@ final class GifTool {
         if last.contains("No such file") { return "文件读不到：\(last)" }
         if last.contains("Invalid data") { return "不是有效的视频文件：\(last)" }
         return last
+    }
+
+    /// 跑命令并把 stdout 逐行回调（进度用），stderr 攒起来当报错文案。
+    @discardableResult
+    static func runStreaming(_ path: String, _ args: [String],
+                             onStdoutLine: @escaping (String) -> Void) -> (code: Int32, err: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = args
+        let outPipe = Pipe()
+        let errPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = errPipe
+
+        let lock = NSLock()
+        var errData = Data()
+        outPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            for line in String(decoding: chunk, as: UTF8.self).split(separator: "\n") {
+                onStdoutLine(String(line))
+            }
+        }
+        errPipe.fileHandleForReading.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            lock.lock(); errData.append(chunk); lock.unlock()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            return (-1, "无法启动 \(path)：\(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+        outPipe.fileHandleForReading.readabilityHandler = nil
+        errPipe.fileHandleForReading.readabilityHandler = nil
+        lock.lock()
+        let collected = errData
+        lock.unlock()
+        return (process.terminationStatus, String(decoding: collected, as: UTF8.self))
     }
 
     @discardableResult
