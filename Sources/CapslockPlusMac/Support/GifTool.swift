@@ -156,7 +156,18 @@ final class GifTool {
             var failed: [String] = []
             var oversized: [String] = []
 
-            DispatchQueue.main.async { MenuBarProgress.shared.start() }
+            // begin 要碰状态栏，必须在主线程；这里本来就在后台队列，同步切过去取句柄
+            let progressTask: MenuBarProgressIndicator.Task = {
+                if Thread.isMainThread {
+                    return MenuBarProgressIndicator.shared.begin(label: "转换中")
+                }
+                var task: MenuBarProgressIndicator.Task?
+                DispatchQueue.main.sync {
+                    task = MenuBarProgressIndicator.shared.begin(label: "转换中")
+                }
+                return task!
+            }()
+            defer { progressTask.end() }
 
             for (index, input) in urls.enumerated() {
                 // 多文件时按"第几个 + 这个文件自己的进度"折算成总进度
@@ -167,9 +178,7 @@ final class GifTool {
                     continue
                 }
                 switch Self.convertFile(input: input, output: output, onProgress: { local in
-                    DispatchQueue.main.async {
-                        MenuBarProgress.shared.update(base + local * span)
-                    }
+                    progressTask.update(base + local * span)
                 }) {
                 case .success(let bytes):
                     ok += 1
@@ -184,7 +193,7 @@ final class GifTool {
 
             self?.isRunning = false
             DispatchQueue.main.async {
-                MenuBarProgress.shared.stop()
+                progressTask.end()   // 先还原图标，再弹完成提示
                 if failed.isEmpty {
                     // 完成提示只留 1 秒：转完了就完了，不需要人点确认
                     let total = Self.humanSize(bytes: produced)

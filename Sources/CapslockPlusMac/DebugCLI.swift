@@ -59,6 +59,10 @@ enum DebugCLI {
         }
 
 
+        if CommandLine.arguments.contains("--progress-selftest") {
+            return runProgressSelfTest()
+        }
+
         if CommandLine.arguments.contains("--tools-check") {
             print(GifTool.environmentReport())
             return 0
@@ -701,4 +705,77 @@ func runAXTree(bundleID: String) -> String {
     }
     lines.append("reader=\(AX.selectedText() ?? "nil")")
     return lines.joined(separator: "\n")
+}
+
+
+// MARK: - 进度条组件自检
+//
+// 只断言几何，不比对像素：像素断言在不同缩放下必然脆。
+func runProgressSelfTest() -> Int32 {
+    var failures: [String] = []
+    let metrics = ProgressGlyph.Metrics()
+    let rect = ProgressGlyph.trackRect(in: NSRect(origin: .zero, size: metrics.size), metrics: metrics)
+
+    func expect(_ name: String, _ condition: Bool, _ detail: String = "") {
+        if !condition { failures.append("\(name) \(detail)") }
+    }
+
+    // 填充：0 也要看得见，1 正好铺满，中间值线性
+    let zero = ProgressGlyph.fillRect(fraction: 0, in: rect, metrics: metrics)
+    expect("fill0", zero.width == metrics.minFill && zero.minX == rect.minX, "w=\(zero.width)")
+    let full = ProgressGlyph.fillRect(fraction: 1, in: rect, metrics: metrics)
+    expect("fill1", abs(full.width - rect.width) < 0.001, "w=\(full.width) want=\(rect.width)")
+    let half = ProgressGlyph.fillRect(fraction: 0.5, in: rect, metrics: metrics)
+    expect("fillHalf", abs(half.width - rect.width / 2) < 0.001, "w=\(half.width)")
+    // 超界夹紧，不能画到轨道外面
+    expect("fillClampLow", ProgressGlyph.fillRect(fraction: -3, in: rect, metrics: metrics).width == metrics.minFill)
+    expect("fillClampHigh", ProgressGlyph.fillRect(fraction: 9, in: rect, metrics: metrics).maxX <= rect.maxX + 0.001)
+
+    // 滑动块：整圈都在轨道内，且首尾真的走完全程
+    var outOfBounds: [Double] = []
+    var phase = 0.0
+    while phase <= 1.0 {
+        let bar = ProgressGlyph.marqueeRect(phase: phase, in: rect, metrics: metrics)
+        if bar.minX < rect.minX - 0.001 || bar.maxX > rect.maxX + 0.001 { outOfBounds.append(phase) }
+        phase += 0.025
+    }
+    expect("marqueeBounds", outOfBounds.isEmpty, "phases=\(outOfBounds.prefix(3))")
+    let start = ProgressGlyph.marqueeRect(phase: 0, in: rect, metrics: metrics)
+    let nearEnd = ProgressGlyph.marqueeRect(phase: 0.999, in: rect, metrics: metrics)
+    expect("marqueeStart", abs(start.minX - rect.minX) < 0.001, "x=\(start.minX)")
+    expect("marqueeEnd", abs(nearEnd.maxX - rect.maxX) < 1.0, "maxX=\(nearEnd.maxX) want=\(rect.maxX)")
+    // 负数相位也不能翻到左边去
+    expect("marqueeNegativePhase",
+           ProgressGlyph.marqueeRect(phase: -0.5, in: rect, metrics: metrics).minX >= rect.minX - 0.001)
+
+    // 渲染冒烟：两种形态都能出图，且尺寸就是菜单栏那个尺寸
+    let determinate = ProgressGlyph.image(fraction: 0.42, phase: 0)
+    let indeterminate = ProgressGlyph.image(fraction: nil, phase: 0.3)
+    expect("imageSize", determinate.size == metrics.size && indeterminate.size == metrics.size,
+           "d=\(determinate.size) i=\(indeterminate.size)")
+    expect("imagePixels", determinate.tiffRepresentation != nil && indeterminate.tiffRepresentation != nil)
+
+    // 生命周期：句柄 end 幂等、deinit 兜底、并发时上层结束能落回下层
+    let indicator = MenuBarProgressIndicator()
+    let a = indicator.begin(label: "A")
+    let b = indicator.begin(label: "B")
+    expect("stackTwo", indicator.isActive)
+    b.update(0.5)
+    b.end()
+    expect("stackOneAfterEnd", indicator.isActive)
+    b.end()                                    // 幂等
+    a.update(0.2)
+    a.end()
+    expect("stackEmptyAfterEnd", !indicator.isActive)
+    var leaked: MenuBarProgressIndicator.Task?
+    leaked = indicator.begin(label: "C")
+    leaked = nil                                // 靠 deinit 兜底
+    expect("deinitEnds", !indicator.isActive)
+
+    if failures.isEmpty {
+        print("progress selftest OK (\(9) 组几何 + 4 组生命周期)")
+        return 0
+    }
+    for failure in failures { print("FAIL \(failure)") }
+    return 1
 }
