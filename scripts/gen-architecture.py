@@ -6,7 +6,7 @@
 """
 import subprocess
 
-W = 1760
+W = 1900
 PAD = 48
 FONT = "Noto Sans CJK SC"
 BORDER = "#6b7c93"
@@ -171,7 +171,8 @@ y = b4 + 48
     ("OfflineDictionary", ["dict.sqlite：牛津 + 朗文", "10.4 万词条，带原始 HTML"], 440),
     ("TranslateService", ["有道 NMT（有凭据时）", "→ dict.youdao.com 兜底"], 420),
     ("TranslatePanel", ["WKWebView 渲染词典 HTML", "NSTextView 纯文本回退"], 420),
-]], gaps=[[130, 130]])
+    ("ProgressGlyph", ["菜单栏进度条（可复用）", "确定进度 / 不定态滑动"], 400),
+]], gaps=[[130, 130, 130]])
 dic = p5[0]
 d.arrow(dic[0][0] + dic[0][1], dic[0][2] / 2 + y + TOP, dic[1][0], dic[0][2] / 2 + y + TOP, "未命中")
 d.arrow(dic[1][0] + dic[1][1], dic[1][2] / 2 + y + TOP, dic[2][0], dic[1][2] / 2 + y + TOP, "渲染")
