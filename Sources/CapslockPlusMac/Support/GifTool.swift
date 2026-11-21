@@ -23,6 +23,8 @@ final class GifTool {
     typealias Outcome = Result<Int, Failure>
 
     private(set) var isRunning = false
+    /// gifsicle 只是"能更小"，不值得每次转码都问一遍；一次会话里问过就不再问。
+    private var askedOptionalTool = false
     private let queue = DispatchQueue(label: "capslock.gif.convert", qos: .userInitiated)
 
     // MARK: - 环境探测
@@ -76,6 +78,14 @@ final class GifTool {
             return
         }
 
+        // 可选依赖：缺 gifsicle 不影响转换，只影响体积，所以只问、不拦
+        if GifTool.gifsiclePath == nil && !askedOptionalTool {
+            askedOptionalTool = true
+            let shouldConvert = promptOptionalTool()
+            Log.info("gifTool optionalTool prompt convert=\(shouldConvert ? 1 : 0)")
+            guard shouldConvert else { return }
+        }
+
         // LSUIElement 的 App 默认不在前台，不激活的话 NSOpenPanel 会开到别的窗口后面
         NSApp.activate(ignoringOtherApps: true)
 
@@ -111,6 +121,25 @@ final class GifTool {
             NSPasteboard.general.setString(Env.installCommand, forType: .string)
             StatusToast.shared.show("已复制安装命令", ms: 1600)
         }
+    }
+
+    /// 返回 true 表示"不装，直接转换"；false 表示用户要先去装，退出不转。
+    private func promptOptionalTool() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "没装 gifsicle，转出来的 GIF 会大 30~40%"
+        alert.informativeText = "装上只是体积更小，功能完全一样。\n\n"
+            + "安装命令：\(Env.optionalInstallCommand)\n\n"
+            + "选「复制安装命令」会把它放进剪贴板，然后退出（装完再点一次菜单即可）。"
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "复制安装命令")
+        alert.addButton(withTitle: "不装，直接转换")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return true }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(Env.optionalInstallCommand, forType: .string)
+        StatusToast.shared.show("已复制安装命令", detail: Env.optionalInstallCommand, ms: 2600)
+        return false
     }
 
     // MARK: - 批量转换
