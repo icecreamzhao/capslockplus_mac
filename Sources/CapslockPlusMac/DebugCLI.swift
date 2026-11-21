@@ -24,6 +24,41 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--clipboard-selftest") {
+            return Clipboard.selftest() ? 0 : 1
+        }
+
+        if let index = CommandLine.arguments.firstIndex(of: "--clipboard-probe"),
+           index + 1 < CommandLine.arguments.count {
+            let bundleID = CommandLine.arguments[index + 1]
+            var lines: [String] = []
+            if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
+                app.activate(options: [])
+                usleep(400_000)
+                let text = Clipboard.copySelection()
+                lines.append("app=\(bundleID) len=\(text?.count ?? -1) head=\((text ?? "nil").prefix(30))")
+            } else {
+                lines.append("app not running: \(bundleID)")
+            }
+            try? lines.joined(separator: "\n").write(toFile: "/tmp/clipprobe.txt", atomically: true, encoding: .utf8)
+            return 0
+        }
+
+        if CommandLine.arguments.contains("--ax-matrix") || CommandLine.arguments.contains("--clipboard-probe") || CommandLine.arguments.contains("--clipboard-selftest") {
+            return runAXMatrixProbe()
+        }
+
+        if let index = CommandLine.arguments.firstIndex(of: "--ax-light"),
+           index + 1 < CommandLine.arguments.count {
+            return runAXLightProbe(bundleID: CommandLine.arguments[index + 1])
+        }
+
+        if let index = CommandLine.arguments.firstIndex(of: "--ax-probe"),
+           index + 1 < CommandLine.arguments.count {
+            return runAXProbe(bundleID: CommandLine.arguments[index + 1])
+        }
+
+
         if let index = CommandLine.arguments.firstIndex(of: "--ax-tree"),
            index + 1 < CommandLine.arguments.count {
             let report = runAXTree(bundleID: CommandLine.arguments[index + 1])

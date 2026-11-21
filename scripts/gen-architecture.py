@@ -158,7 +158,7 @@ y = b3 + 48
                 [[("AX", ["core · attribute · selection · window", "属性读取 / 选区 / 窗口 frame / 剪贴板兜底"], 450),
                   ("KeyPost", ["带标记的按键合成"], 250),
                   ("Clipboard", ["快照与还原（多 item）"], 280),
-                  ("InputSource", ["输入源切换", "重启 IME 进程"], 280),
+                  ("InputSource", ["输入源枚举与切换", "TIS 选源 + 校验"], 280),
                   ("HIDCapsLock", ["IOHID 锁定状态"], 240)],
                  [("WindowStore", ["windows.json 窗口绑定"], 320),
                   ("SystemEvents · SecureInput", ["唤醒 / 设备变化通知 · 安全输入检测"], 500),

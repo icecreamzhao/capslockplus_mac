@@ -132,17 +132,6 @@ enum InputSource {
 
     /// 诊断用：把属性值转成人能读的字符串。
     /// 旧的 `"\($0)"` 打的是 CFTypeRef 指针地址（`0x00000078c4b9cd00`），等于没打。
-    private static func propertyString(_ source: TISInputSource, _ key: CFString) -> String? {
-        guard let raw = TISGetInputSourceProperty(source, key) else { return nil }
-        let object = Unmanaged<CFTypeRef>.fromOpaque(raw).takeUnretainedValue()
-        if CFGetTypeID(object) == CFStringGetTypeID() {
-            return (object as! CFString) as String
-        }
-        if CFGetTypeID(object) == CFBooleanGetTypeID() {
-            return (object as! CFBoolean) == kCFBooleanTrue ? "1" : "0"
-        }
-        return nil
-    }
 
     static func debugID(_ source: TISInputSource) -> String? { id(of: source) }
     static func debugName(_ source: TISInputSource) -> String? { name(of: source) }

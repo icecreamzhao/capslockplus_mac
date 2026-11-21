@@ -89,13 +89,14 @@ open /Applications/CapslockPlusMac.app
 - **窗口绑定只能到「应用级 + 标题提示」**：macOS 没有跨进程稳定的窗口标识。跳转时先按标题 raise 具体窗口，
   标题变了（Terminal 换了命令、浏览器换了页）就只切到该 app，日志记 `title-miss`。
 - **绑定的 app 没在运行时会自动启动它**，从启动到窗口可用有 1–2 秒延迟。
-- **带修饰键的 chord 里合成 `Cmd+C` 无效**（多剪贴板没实现），所以用这类动作时「复制」拿不到内容；
-  无修饰的方向键类动作不受影响。
+- **带修饰键的 chord 里合成 `Cmd+C` 拿不到内容**：物理按着的那几个修饰键会被合并进合成事件
+  （实际发出去的是 Cmd+Option+C 之类），目标 App 不认。无修饰的方向键类动作不受影响；
+  下一条的剪贴板兜底用的是同一套合成机制，所以只在"没有任何和弦修饰键被按住"时可靠。
 - **剪贴板兜底会有副作用**：AX 读不到选区的 App（Excel、Inkscape 等白名单）靠「备份剪贴板 → 模拟 Cmd+C →
   读 → 还原」取词，Clipy 这类历史工具会记录这一次复制。
 - **JVM 系 App 要在 IDE 内勾 "Support screen readers"** 才暴露文本节点；Qt / GPU 终端 / 远程桌面
   拿不到 AX 选区，只能走白名单兜底。
-- **词典与读音是本地数据，不在仓库里**（`dict.sqlite` 459MB、`audio/` 505MB、`dict-assets/` 181MB），
+- **词典与读音是本地数据，不在仓库里**（`dict.sqlite` 459MB、`audio/` 505MB、`dict-assets/` 182MB），
   放在 `~/.config/capslock-plus-mac/`。翻译凭据同理（`youdao.json`，mode 600），没配也能用公开接口。
 - **偶发「某个 App 里输入法不出候选框」**：全局输入源正确、其它 App 同时正常，只有那一个 App
   不弹候选（实测是 Terminal）。**解法：切到别的 App 打两个字再切回来**（让那个 App 重建输入上下文）。
