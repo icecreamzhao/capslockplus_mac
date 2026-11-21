@@ -14,7 +14,8 @@ final class GifTool {
     enum Env {
         static let ffmpeg = "ffmpeg"
         static let gifsicle = "gifsicle"
-        static let installCommand = "brew install ffmpeg gifsicle"
+        static let installCommand = "brew install ffmpeg"
+    static let optionalInstallCommand = "brew install gifsicle"
     }
 
     /// 结果：成功时返回输出体积（字节），失败携带一句人话
@@ -38,19 +39,23 @@ final class GifTool {
         return nil
     }
 
+    /// 只有 ffmpeg 是必需的（转码全靠它）。
+    /// gifsicle 只负责再压 30~50%，没装也能用，只是 GIF 大一些 —— 不该因为它挡路。
     static func missingTools() -> [String] {
-        [Env.ffmpeg, Env.gifsicle].filter { locate($0) == nil }
+        [Env.ffmpeg].filter { locate($0) == nil }
     }
+
+    static var gifsiclePath: String? { locate(Env.gifsicle) }
 
     static func environmentReport() -> String {
         var lines = ["PATH=\(ProcessInfo.processInfo.environment["PATH"] ?? "(空)")"]
-        for name in [Env.ffmpeg, Env.gifsicle] {
+        for (name, required) in [(Env.ffmpeg, "必需"), (Env.gifsicle, "可选")] {
             if let path = locate(name) {
                 let out = run(path, ["-version"]).err
                     .split(separator: "\n").first.map(String.init) ?? ""
-                lines.append("\(name)=\(path)  \(out.prefix(80))")
+                lines.append("\(name)(\(required))=\(path)  \(out.prefix(70))")
             } else {
-                lines.append("\(name)=missing")
+                lines.append("\(name)(\(required))=missing")
             }
         }
         return lines.joined(separator: "\n")
@@ -95,7 +100,8 @@ final class GifTool {
     private func promptInstall(missing: [String]) {
         let alert = NSAlert()
         alert.messageText = "缺少转换工具：\(missing.joined(separator: "、"))"
-        alert.informativeText = "转 GIF 需要 ffmpeg 和 gifsicle。\n\n在终端执行：\n\(Env.installCommand)"
+        alert.informativeText = "转 GIF 需要 ffmpeg。\n\n在终端执行：\n\(Env.installCommand)\n\n"
+            + "gifsicle 是可选的（装上能再小 30~50%），没装也能转。"
         alert.alertStyle = .warning
         alert.addButton(withTitle: "复制安装命令")
         alert.addButton(withTitle: "好")
@@ -179,8 +185,8 @@ final class GifTool {
     /// 宽度只缩不放（素材本来就窄时保持原样），这一点和 scripts/make-gif.sh 一致。
     @discardableResult
     static func convertFile(input: URL, output: URL) -> Outcome {
-        guard let ffmpeg = locate(Env.ffmpeg), let gifsicle = locate(Env.gifsicle) else {
-            return .failure(Failure(message: "缺少 ffmpeg 或 gifsicle"))
+        guard let ffmpeg = locate(Env.ffmpeg) else {
+            return .failure(Failure(message: "缺少 ffmpeg"))
         }
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("capslock-gif-\(UUID().uuidString).gif")
@@ -194,6 +200,19 @@ final class GifTool {
         guard first.code == 0 else {
             try? FileManager.default.removeItem(at: temp)
             return .failure(Failure(message: friendly(first.err)))
+        }
+
+        guard let gifsicle = gifsiclePath else {
+            // 没装 gifsicle：跳过二次压缩，体积大一些但结果可用
+            do {
+                try? FileManager.default.removeItem(at: output)
+                try FileManager.default.moveItem(at: temp, to: output)
+                Log.info("gifTool note=gifsicle-missing skip=-O3")
+            } catch {
+                return .failure(Failure(message: "无法写入 \(output.lastPathComponent)"))
+            }
+            let size = (try? FileManager.default.attributesOfItem(atPath: output.path))?[.size] as? Int
+            return .success(size ?? 0)
         }
 
         let second = run(gifsicle, ["-O3", "--lossy=80", "--colors", "256", temp.path, "-o", output.path])
