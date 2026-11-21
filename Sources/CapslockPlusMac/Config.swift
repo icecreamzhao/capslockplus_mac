@@ -29,8 +29,6 @@ final class Config {
     private(set) var panelRenderMode: String = "html"
     /// 长按切输入法成功后，底部 HUD 停留毫秒数；0 = 不弹。
     private(set) var imeToastMs: Int = 700
-    /// 切输入源后"输入上下文不跟着换"的 App：对这些 App 做一次焦点往返（Terminal 实测如此）。
-    private(set) var imeNudgeApps: Set<String> = ["com.apple.Terminal"]
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -68,7 +66,6 @@ final class Config {
 
         pairs.append(contentsOf: [
             ("caps+f5", "reloadConfig"),
-            ("caps+alt+r", "imereset"),
             ("caps+esc", "none"),
             ("caps+`", "none"),
             ("caps+tab", "none"),
@@ -187,9 +184,6 @@ final class Config {
         panelRenderMode = (root["panelRenderMode"] as? String)?.lowercased() ?? "html"
         let toastMs = (root["imeToastMs"] as? NSNumber)?.intValue ?? 700
         imeToastMs = min(max(toastMs, 0), 3000)
-        if let nudges = root["imeNudgeApps"] as? [String] {
-            imeNudgeApps = Set(nudges)          // 显式配置（空数组 = 全部关掉）
-        }
 
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action
@@ -243,7 +237,7 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs) imeNudge=\(imeNudgeApps.count)")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs)")
         return true
     }
 

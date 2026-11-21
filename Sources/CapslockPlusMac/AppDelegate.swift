@@ -130,7 +130,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(menuItem("重载键位 (Caps+F5)", action: #selector(reloadKeymap)))
         menu.addItem(menuItem("打开键位配置", action: #selector(openKeymap)))
         menu.addItem(menuItem("打开日志", action: #selector(openLog)))
-        menu.addItem(menuItem("修复输入法（卡英文时用）", action: #selector(restartIME)))
         let remap = menuItem("重映射 Caps→F18：未知", action: #selector(toggleRemap))
         menu.addItem(remap)
         remapItem = remap
@@ -310,12 +309,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openKeymap() {
         Config.shared.ensureExists()
         NSWorkspace.shared.open(Config.shared.fileURL)
-    }
-
-    @objc private func restartIME() {
-        InputSource.restartIMEServer(reason: "menu") { line in
-            Log.info("menu imeRestart -> \(line)")
-        }
     }
 
     @objc private func openLog() {

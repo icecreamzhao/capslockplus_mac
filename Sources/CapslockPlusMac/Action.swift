@@ -64,7 +64,6 @@ enum Action: Equatable {
     case translate
     case reloadConfig
     case switchInputSource
-    case resetInputMethod
 
     var name: String {
         switch self {
@@ -123,7 +122,6 @@ enum Action: Equatable {
         case .translate: return "translate"
         case .reloadConfig: return "reloadConfig"
         case .switchInputSource: return "switchInputSource"
-        case .resetInputMethod: return "resetInputMethod"
         }
     }
 
@@ -176,8 +174,6 @@ enum Action: Equatable {
         "inserttime": .insertDate("HH:mm"),
         "insertdatetime": .insertDate("yyyy-MM-dd HH:mm"),
         "switchinputsource": .switchInputSource,
-        "imereset": .resetInputMethod,
-        "resetinputmethod": .resetInputMethod
     ]
 
     private static let repeatable: [String: Action] = [

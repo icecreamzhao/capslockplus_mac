@@ -47,7 +47,7 @@ open /Applications/CapslockPlusMac.app
 窗口    alt+1..0 绑定当前窗口     1..0 激活已绑定的窗口（绑定落盘，重启仍有效）
         ctrl+h 左半屏  ctrl+l 右半屏  ctrl+k 上半屏  ctrl+j 下半屏
         ctrl+return 最大化  ctrl+c 居中
-其他    f5 重载键位表   alt+r 修复输入法（卡英文时用）   esc / ` / tab 直接吞掉
+其他    f5 重载键位表   esc / ` / tab 直接吞掉
 单按 Caps = 切换大小写
 长按 Caps 0.6 秒 = 切换输入法（到 0.6s 当场触发一次，之后仍可按着继续用组合键）
            切换成功后屏幕底部会短暂显示切换到的输入法名字；`keymap.json` 里 `imeToastMs`
@@ -98,9 +98,10 @@ open /Applications/CapslockPlusMac.app
 - **词典与读音是本地数据，不在仓库里**（`dict.sqlite` 459MB、`audio/` 505MB、`dict-assets/` 181MB），
   放在 `~/.config/capslock-plus-mac/`。翻译凭据同理（`youdao.json`，mode 600），没配也能用公开接口。
 - **偶发「某个 App 里输入法不出候选框」**：全局输入源正确、其它 App 同时正常，只有那一个 App
-  不弹候选（实测是 Terminal）。按 `caps+alt+r`，或切到别的 App 打两个字再切回来即可恢复。
+  不弹候选（实测是 Terminal）。**解法：切到别的 App 打两个字再切回来**（让那个 App 重建输入上下文）。
   已排除切源失败、IME 进程卡英文、杀进程、短间隔连切；确定是该 App 的输入上下文与输入法客户端
-  脱钩，触发条件尚未定位。
+  脱钩，但触发条件没定位。自动修复做过两版（重启 IME 进程、重建输入上下文），实测都没用，
+  已从菜单和键位里移除。
 - 日志在 `~/Library/Logs/CapslockPlusMac.log`，菜单栏 → 「打开日志」。
 
 ## 代码架构
