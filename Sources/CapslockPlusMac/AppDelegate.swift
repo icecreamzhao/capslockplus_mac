@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var permissionItem: NSMenuItem?
     private var remapItem: NSMenuItem?
+    private var gifToolItem: NSMenuItem?
     private var loginItemItem: NSMenuItem?
     private var secureInputItem: NSMenuItem?
     private var inputSourceItem: NSMenuItem?
@@ -77,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        gifToolItem?.title = GifTool.shared.isRunning ? "录屏转 GIF…（转换中）" : "录屏转 GIF…"
+        gifToolItem?.isEnabled = !GifTool.shared.isRunning
         permissionItem?.title = "辅助功能权限状态：\(AX.isTrusted ? "已授权" : "未授权")"
         remapItem?.title = remapTitle
         refreshLoginItemMenuItem()
@@ -158,6 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         capsLockItem.isEnabled = false
         menu.addItem(capsLockItem)
         self.capsLockItem = capsLockItem
+
+        let tools = NSMenuItem(title: "小工具", action: nil, keyEquivalent: "")
+        let toolsMenu = NSMenu(title: "小工具")
+        let gifItem = menuItem("录屏转 GIF…", action: #selector(convertRecordingToGIF))
+        toolsMenu.addItem(gifItem)
+        tools.submenu = toolsMenu
+        menu.addItem(tools)
+        gifToolItem = gifItem
 
         let windowBindings = NSMenuItem(title: "窗口绑定", action: nil, keyEquivalent: "")
         let windowBindingsSubmenu = NSMenu(title: "窗口绑定")
@@ -262,6 +273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var secureInputTitle: String {
         guard secureInputOn else { return "安全输入：关" }
         return "安全输入：开（\(SecureInput.ownerName() ?? "某个 App")）"
+    }
+
+    @objc private func convertRecordingToGIF() {
+        GifTool.shared.pickAndConvert()
     }
 
     private func menuItem(_ title: String, action: Selector) -> NSMenuItem {

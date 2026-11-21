@@ -59,6 +59,34 @@ enum DebugCLI {
         }
 
 
+        if CommandLine.arguments.contains("--tools-check") {
+            print(GifTool.environmentReport())
+            return 0
+        }
+
+        if let index = CommandLine.arguments.firstIndex(of: "--gif-convert"),
+           index + 1 < CommandLine.arguments.count {
+            let input = URL(fileURLWithPath: CommandLine.arguments[index + 1])
+            let output: URL
+            if index + 2 < CommandLine.arguments.count,
+               !CommandLine.arguments[index + 2].hasPrefix("--") {
+                output = URL(fileURLWithPath: CommandLine.arguments[index + 2])
+            } else if let auto = GifTool.uniqueOutput(for: input) {
+                output = auto
+            } else {
+                print("gifConvert error=无法确定输出路径")
+                return 2
+            }
+            switch GifTool.convertFile(input: input, output: output) {
+            case .success(let bytes):
+                print("gifConvert ok out=\(output.path) bytes=\(bytes)")
+                return 0
+            case .failure(let message):
+                print("gifConvert error=\(message)")
+                return 1
+            }
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--ax-tree"),
            index + 1 < CommandLine.arguments.count {
             let report = runAXTree(bundleID: CommandLine.arguments[index + 1])
