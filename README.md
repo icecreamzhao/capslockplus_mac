@@ -1,7 +1,7 @@
 # Capslock+ for macOS
 
 把 Caps Lock 变成「按住当修饰键」的键盘增强工具，逻辑照搬 Windows 上的 Capslock+ / AutoHotkey 版，
-用 Swift + AppKit 重写，只依赖系统框架。
+用 Swift + AppKit 重写，运行时只依赖系统框架（菜单里的「录屏转 GIF」另需 ffmpeg，见下）。
 
 ## 用途
 
@@ -50,7 +50,7 @@ open /Applications/CapslockPlusMac.app
 其他    f5 重载键位表   esc / ` / tab 直接吞掉
 单按 Caps = 切换大小写
 长按 Caps 0.6 秒 = 切换输入法（到 0.6s 当场触发一次，之后仍可按着继续用组合键）
-           切换成功后屏幕底部会短暂显示切换到的输入法名字；`keymap.json` 里 `imeToastMs`
+           切换成功后屏幕正中会短暂显示切换到的输入法名字；`keymap.json` 里 `imeToastMs`
            可调停留毫秒（默认 700，0 = 不显示）
 ```
 
@@ -79,6 +79,19 @@ open /Applications/CapslockPlusMac.app
 - 词条默认用 WKWebView 渲染词典原始 HTML（颜色、表格、插图、音标字体都保留）；
   想退回纯文本加 `"panelRenderMode": "text"`
 
+### 5. 小工具：录屏转 GIF
+
+菜单栏图标 → **小工具 → 录屏转 GIF…**
+
+1. 点之前会先查环境：缺 ffmpeg 会弹窗并给出一条可复制的 `brew install ffmpeg`
+2. 弹出文件选择框，可以多选 `.mov` / `.mp4`
+3. 双击（或点「转换」）后直接在**原文件夹**生成同名 GIF，转换过程在后台进行，屏幕正中显示进度
+4. 同名文件不覆盖：已存在 `demo.gif` 时依次生成 `demo-2.gif`、`demo-3.gif`
+
+转换参数固定为：宽度缩到 800px（原本更窄就保持原样）、12fps、两遍调色板（界面纯色区域不起色带）。
+装了 `gifsicle` 会再压一道（体积小 30~50%），没装也能转。命令行等价用法：
+`./scripts/make-gif.sh in.mov out.gif --width 800 --fps 12`。
+
 ## 注意事项
 
 - **Secure Input 期间所有热键失效**（密码框、`sudo` 提示、1Password 等）。这是系统行为，第三方
@@ -103,6 +116,8 @@ open /Applications/CapslockPlusMac.app
   已排除切源失败、IME 进程卡英文、杀进程、短间隔连切；确定是该 App 的输入上下文与输入法客户端
   脱钩，但触发条件没定位。自动修复做过两版（重启 IME 进程、重建输入上下文），实测都没用，
   已从菜单和键位里移除。
+- **「录屏转 GIF」需要 ffmpeg**（`brew install ffmpeg`）。GUI 进程由 LaunchAgent 拉起，`PATH` 只有
+  `/usr/bin:/bin:/usr/sbin:/sbin`，所以程序会自己去 `/opt/homebrew/bin` 找，不依赖你的 shell 环境。
 - 日志在 `~/Library/Logs/CapslockPlusMac.log`，菜单栏 → 「打开日志」。
 
 ## 代码架构
