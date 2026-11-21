@@ -767,9 +767,8 @@ func runProgressSelfTest() -> Int32 {
     a.update(0.2)
     a.end()
     expect("stackEmptyAfterEnd", !indicator.isActive)
-    var leaked: MenuBarProgressIndicator.Task?
-    leaked = indicator.begin(label: "C")
-    leaked = nil                                // 靠 deinit 兜底
+    // 拿到句柄后立刻丢掉引用：模拟"忘了 end"，应该靠 deinit 收尾
+    indicator.begin(label: "C")
     expect("deinitEnds", !indicator.isActive)
 
     if failures.isEmpty {
