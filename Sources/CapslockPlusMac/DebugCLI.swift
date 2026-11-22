@@ -214,7 +214,15 @@ enum DebugCLI {
             print(String(format: "load=%.2f %.2f %.2f", snap.load1, snap.load5, snap.load15))
             print("uptime=\(SystemFormat.duration(snap.uptime))")
             print("disk=\(SystemFormat.bytes(snap.diskFree)) free / \(SystemFormat.bytes(snap.diskTotal))")
-            print("net=\(SystemFormat.rate(snap.netDown)) down / \(SystemFormat.rate(snap.netUp)) up")
+            print("net(physical)=\(SystemFormat.rate(snap.netDown)) down / \(SystemFormat.rate(snap.netUp)) up"
+                  + "  tunnel=\(SystemFormat.rate(snap.tunnelDown))/\(SystemFormat.rate(snap.tunnelUp))"
+                  + "  hotspot=\(snap.hotspotActive ? 1 : 0) primary=\(SystemSampler.primaryInterface()?.name ?? "-")")
+            for item in snap.interfaces.prefix(8) {
+                print(String(format: "  iface %-10@ %-8@ ↓%-8@ ↑%-8@",
+                             item.name as NSString, item.kind.label as NSString,
+                             SystemFormat.compactRate(item.down) as NSString,
+                             SystemFormat.compactRate(item.up) as NSString))
+            }
             print("battery=\(snap.batteryPercent.map(String.init) ?? "nil")% charging=\(snap.batteryCharging) health=\(snap.batteryHealth.map(String.init) ?? "nil")% cycles=\(snap.batteryCycles.map(String.init) ?? "nil")")
             print(String(format: "temp=%.1f°C fans=%d", snap.cpuTemp ?? -1, snap.fanCount))
             print("fanRPM=\(snap.fanRPM.map(String.init) ?? "nil")")
