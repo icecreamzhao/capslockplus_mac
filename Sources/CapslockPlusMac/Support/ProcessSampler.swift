@@ -33,8 +33,8 @@ final class ProcessSampler {
     private var portCache: [pid_t: [UInt16]] = [:]
     private var portScanTick = 0
 
-    /// 进程名缓存：名字几乎不变，pid 复用极少，每轮重新 proc_pidpath + 建 String 是纯浪费
-    /// （实测把常驻内存从 74MB 压到 45MB 左右）
+    /// 进程名缓存：名字几乎不变，pid 复用极少，每轮对 840 个进程重复 proc_pidpath + 建 String 是浪费。
+    /// 注意：实测这条优化对常驻内存没明显影响（74MB 不变），主要是省掉每 2 秒的字符串抖动
     private var nameCache: [pid_t: String] = [:]
 
     private var previous: [pid_t: UInt64] = [:]     // pid -> 累计 CPU tick
