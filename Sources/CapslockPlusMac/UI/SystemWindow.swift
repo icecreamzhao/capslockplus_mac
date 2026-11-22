@@ -138,7 +138,6 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     @discardableResult
-    @discardableResult
     private func addColumn(_ title: String, key: String, width: CGFloat, alignment: NSTextAlignment,
                            flex: Bool = false) -> NSTableColumn {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key))
