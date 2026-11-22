@@ -115,7 +115,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key))
         column.title = title
         column.width = width
-        column.minWidth = 50
+        column.minWidth = key == "name" ? 120 : 50   // 名字列别被压到看不清
         column.headerCell.alignment = alignment
         column.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: key == "name")
         table.addTableColumn(column)
