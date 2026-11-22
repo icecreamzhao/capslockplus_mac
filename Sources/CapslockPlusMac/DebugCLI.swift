@@ -80,6 +80,20 @@ enum DebugCLI {
                 let r = proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, infoSize)
                 print("  fd=\(fd.proc_fd) r=\(r)/\(infoSize) kind=\(info.psi.soi_kind) state=\(info.psi.soi_proto.pri_tcp.tcpsi_state) lport=\(info.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)")
             }
+            // 同一份数据走 sampler 的路径，看它拿到什么
+            let sampler = ProcessSampler()
+            _ = sampler.sample()
+            usleep(300_000)
+            let list = sampler.sample()
+            print("sampler list=\(list.count) unreadable=\(sampler.unreadableCount) withPorts=\(list.filter { !$0.ports.isEmpty }.count)")
+            for item in list where !item.ports.isEmpty {
+                print("  sampler pid=\(item.pid) name=\(item.name) ports=\(item.ports)")
+            }
+            if let mine = list.first(where: { $0.pid == pid }) {
+                print("  target in list: name=\(mine.name) cpu=\(mine.cpu) ports=\(mine.ports)")
+            } else {
+                print("  target NOT in list (rusage 被拒 -> 整条跳过)")
+            }
             return 0
         }
 
