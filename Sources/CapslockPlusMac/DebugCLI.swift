@@ -70,8 +70,9 @@ enum DebugCLI {
             usleep(1_200_000)
             let list = sampler.sample()
             func line(_ p: ProcessSample) -> String {
-                String(format: "%-26@ pid=%6d cpu=%6.1f%% mem=%8.1fMB",
-                       p.name as NSString, p.pid, p.cpu, Double(p.memory) / 1048576)
+                String(format: "%-26@ pid=%6d cpu=%6.1f%% mem=%8.1fMB ports=%@",
+                       p.name as NSString, p.pid, p.cpu, Double(p.memory) / 1048576,
+                       (p.ports.isEmpty ? "-" : p.ports.map { "\($0)" }.joined(separator: ",")) as NSString)
             }
             print("count=\(list.count)")
             print("--- top CPU ---")

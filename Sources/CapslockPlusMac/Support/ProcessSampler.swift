@@ -7,6 +7,8 @@ struct ProcessSample {
     let name: String
     var cpu: Double          // 百分比，100 = 一个核心跑满（和活动监视器一致，可超过 100）
     var memory: UInt64       // 字节，优先用 phys_footprint（活动监视器同口径）
+    /// 该进程正在监听的 TCP 端口（已去重、升序）；空表示没有监听
+    var ports: [UInt16] = []
 }
 
 /// 采集进程列表。
@@ -65,7 +67,8 @@ final class ProcessSampler {
                 let deltaNs = Double(toNanoseconds(stats.cpuTicks - last))
                 cpu = deltaNs / elapsedNs * 100
             }
-            results.append(ProcessSample(pid: pid, name: stats.name, cpu: cpu, memory: stats.memory))
+            results.append(ProcessSample(pid: pid, name: stats.name, cpu: cpu,
+                                         memory: stats.memory, ports: listeningPorts(of: pid)))
         }
 
         previous = nextTicks
@@ -103,6 +106,37 @@ final class ProcessSampler {
         return Stats(name: name,
                      cpuTicks: info.pti_total_user &+ info.pti_total_system,
                      memory: info.pti_resident_size)
+    }
+
+    /// 枚举该进程的 socket fd，挑出状态为 LISTEN 的 TCP 端口。
+    ///
+    /// 实测要点（macOS 27 / Apple Silicon）：
+    ///   - `PROC_PIDLISTFDS` / `PROC_PIDFDSOCKETINFO` 同样对 root 进程 EPERM，所以只覆盖自己的用户
+    ///   - 端口在 `insi_lport` 里是网络序、按小端读出来是"字节反的"（8080 → 36895），必须 byteSwapped
+    ///   - 同一个进程常有 IPv4/IPv6 两组 fd 监听同一端口，要按端口去重
+    /// 全量扫一遍约 5ms（200 多个进程），2 秒一次可以接受，不需要单独降频。
+    private func listeningPorts(of pid: pid_t) -> [UInt16] {
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: 256)
+        let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds,
+                                Int32(fds.count * MemoryLayout<proc_fdinfo>.size))
+        guard bytes > 0 else { return [] }
+        let count = Int(bytes) / MemoryLayout<proc_fdinfo>.size
+        guard count > 0 else { return [] }
+
+        var ports = Set<UInt16>()
+        let infoSize = Int32(MemoryLayout<socket_fdinfo>.size)
+        for index in 0..<count {
+            let fd = fds[index]
+            guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { continue }
+            var info = socket_fdinfo()
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, infoSize) == infoSize else { continue }
+            guard info.psi.soi_kind == SOCKINFO_TCP else { continue }
+            guard info.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else { continue }
+            let raw = UInt16(truncatingIfNeeded: info.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)
+            let port = UInt16(bigEndian: raw)
+            if port > 0 { ports.insert(port) }
+        }
+        return ports.sorted()
     }
 
     /// 全路径的 basename 比 proc_name 可读（proc_name 会截断到十几个字符）

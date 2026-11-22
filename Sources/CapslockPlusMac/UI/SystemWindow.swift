@@ -93,6 +93,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         nameColumn.resizingMask = .autoresizingMask
         addColumn("CPU", key: "cpu", width: 66, alignment: .right)
         addColumn("内存", key: "memory", width: 86, alignment: .right)
+        addColumn("端口", key: "ports", width: 84, alignment: .right)
         addColumn("PID", key: "pid", width: 60, alignment: .right)
 
         scrollView = NSScrollView(frame: NSRect(x: padding, y: 34, width: width, height: height - 144))
@@ -232,6 +233,13 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             }
         case "memory":
             return list.sorted { sortAscending ? $0.memory < $1.memory : $0.memory > $1.memory }
+        case "ports":
+            // 按端口号排，没监听端口的沉底
+            return list.sorted {
+                let left = $0.ports.first.map(Int.init) ?? Int.max
+                let right = $1.ports.first.map(Int.init) ?? Int.max
+                return sortAscending ? left < right : left > right
+            }
         case "pid":
             return list.sorted { sortAscending ? $0.pid < $1.pid : $0.pid > $1.pid }
         default:
@@ -293,6 +301,16 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             cell.textColor = sample.cpu >= 50 ? .systemRed : (sample.cpu >= 10 ? .systemOrange : .labelColor)
         case "memory":
             cell.stringValue = SystemFormat.bytes(sample.memory)
+        case "ports":
+            // 只显示前两个，多了用 +N 概括，完整列表放 tooltip
+            if sample.ports.isEmpty {
+                cell.stringValue = ""
+            } else {
+                let head = sample.ports.prefix(2).map { "\($0)" }.joined(separator: " ")
+                cell.stringValue = sample.ports.count > 2 ? "\(head) +\(sample.ports.count - 2)" : head
+                cell.textColor = .systemBlue
+                cell.toolTip = sample.ports.map { "\($0)" }.joined(separator: ", ")
+            }
         case "pid":
             cell.stringValue = "\(sample.pid)"
             cell.textColor = .secondaryLabelColor
