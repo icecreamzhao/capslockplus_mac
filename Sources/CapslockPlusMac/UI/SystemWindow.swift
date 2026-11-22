@@ -56,6 +56,11 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         cpuBar.frame = NSRect(x: barX, y: height - 39, width: width - 66, height: 10)
         memLabel.frame = NSRect(x: padding, y: height - 66, width: 66, height: 16)
         memBar.frame = NSRect(x: barX, y: height - 63, width: width - 66, height: 10)
+        // 顶部锚定：bottom margin 可变，窗口变高时贴着顶走
+        cpuLabel.autoresizingMask = [.minYMargin]
+        memLabel.autoresizingMask = [.minYMargin]
+        cpuBar.autoresizingMask = [.width, .minYMargin]
+        memBar.autoresizingMask = [.width, .minYMargin]
         content.addSubview(cpuLabel)
         content.addSubview(cpuBar)
         content.addSubview(memLabel)
@@ -64,10 +69,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         summaryLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
         summaryLabel.textColor = .secondaryLabelColor
         summaryLabel.frame = NSRect(x: padding, y: height - 88, width: width, height: 15)
+        summaryLabel.autoresizingMask = [.width, .minYMargin]
         content.addSubview(summaryLabel)
 
         let separator = NSBox(frame: NSRect(x: padding, y: height - 100, width: width, height: 1))
         separator.boxType = .separator
+        separator.autoresizingMask = [.width, .minYMargin]
         content.addSubview(separator)
 
         table = NSTableView()
@@ -76,11 +83,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         table.usesAlternatingRowBackgroundColors = true
         table.allowsColumnReordering = false
         table.allowsMultipleSelection = false
+        // 窗口拉宽时由"进程"列吸收多余空间，其余列保持定宽
+        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         table.dataSource = self
         table.delegate = self
         table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: false)]
 
-        addColumn("进程", key: "name", width: 200, alignment: .left)
+        let nameColumn = addColumn("进程", key: "name", width: 200, alignment: .left)
+        nameColumn.resizingMask = .autoresizingMask
         addColumn("CPU", key: "cpu", width: 66, alignment: .right)
         addColumn("内存", key: "memory", width: 86, alignment: .right)
         addColumn("PID", key: "pid", width: 60, alignment: .right)
@@ -90,15 +100,18 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.autoresizingMask = [.width, .height]      // 表格区吸收剩下的空间
         content.addSubview(scrollView)
 
         footerLabel.font = .systemFont(ofSize: 10)
         footerLabel.textColor = .tertiaryLabelColor
         footerLabel.frame = NSRect(x: padding, y: 14, width: width, height: 14)
+        footerLabel.autoresizingMask = [.width, .maxYMargin]   // 底部锚定
         content.addSubview(footerLabel)
     }
 
-    private func addColumn(_ title: String, key: String, width: CGFloat, alignment: NSTextAlignment) {
+    @discardableResult
+    private func addColumn(_ title: String, key: String, width: CGFloat, alignment: NSTextAlignment) -> NSTableColumn {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key))
         column.title = title
         column.width = width
@@ -106,6 +119,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         column.headerCell.alignment = alignment
         column.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: key == "name")
         table.addTableColumn(column)
+        return column
     }
 
     private func metricLabel(_ text: String) -> NSTextField {
@@ -232,11 +246,21 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         return list[index]
     }
 
+    /// 自检用：模拟拖拽改变窗口尺寸（跑一小段 runloop 让布局生效）
+    func debugResize(to size: NSSize) {
+        panel.setContentSize(size)
+        let deadline = Date().addingTimeInterval(0.15)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+        }
+    }
+
     /// 自检用：窗口几何、行数、当前排序
     var debugFrame: String {
         let frame = panel.frame
         return "\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"
             + " visible=\(panel.isVisible ? 1 : 0) rows=\(table.numberOfRows)"
+            + " tableW=\(Int(scrollView.frame.width))/colW=\(Int(table.tableColumns.first?.width ?? 0))"
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
     }
 

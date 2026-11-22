@@ -91,6 +91,11 @@ enum DebugCLI {
                 RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
             }
             print("frame=\(controller.debugFrame)")
+            // 模拟拖大/拖小，验证弹簧布局与列宽自适应
+            controller.debugResize(to: NSSize(width: 700, height: 720))
+            print("after grow=\(controller.debugFrame)")
+            controller.debugResize(to: NSSize(width: 420, height: 360))
+            print("after shrink=\(controller.debugFrame)")
             controller.hide()
             print("after hide=\(controller.debugFrame)")
             return 0
