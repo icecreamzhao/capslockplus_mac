@@ -96,6 +96,28 @@ open /Applications/CapslockPlusMac.app
 （实测同一段满屏噪点素材：1,279,777 → 1,233,365 字节，仅 -3.6%）。命令行等价用法：
 `./scripts/make-gif.sh in.mov out.gif --width 800 --fps 12`。
 
+### 6. 系统监控
+
+菜单栏图标旁会显示紧凑读数 **`12% · 68%`**（CPU 占用 · 内存占用），鼠标悬停有 tooltip，
+菜单里点「系统」可看明细：
+
+```
+CPU        占用（核数）
+内存       已用 / 总量（百分比）
+负载       1 / 5 / 15 分钟
+运行时间   自上次开机
+磁盘       剩余 / 总量（根卷）
+网络       ↓ 下行速率 · ↑ 上行速率（两次采样差值）
+电池       电量 · 是否充电 · 健康度 · 循环次数
+温度       CPU 附近最高温度（SMC）
+风扇       转速；低温停转时显示「停转」
+```
+
+数据全部来自系统框架（mach / statfs / getifaddrs / IOPowerSources / IOKit SMC），不读 Stats 的数据也不依赖它。
+
+- 关掉读数：`keymap.json` 顶层加 `"systemReadout": false`（菜单里的「系统」也会一起消失）
+- 改采样间隔：`"systemSampleMs": 2000`（毫秒，夹在 500–10000；越小越费电）
+
 ## 注意事项
 
 - **Secure Input 期间所有热键失效**（密码框、`sudo` 提示、1Password 等）。这是系统行为，第三方
