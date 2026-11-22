@@ -33,7 +33,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var displayRowsDirty = true
 
     private override init() {
-        panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 560),
+        panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 690, height: 560),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
                             backing: .buffered, defer: false)
         super.init()
@@ -41,8 +41,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        // 6 列定宽列最小加起来就 342pt，窗口再窄会出现横向溢出，所以下限设 500
-        panel.minSize = NSSize(width: 500, height: 340)
+        // 8 列定宽列最小加起来就 458pt，窗口再窄会出现横向溢出
+        panel.minSize = NSSize(width: 620, height: 340)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.delegate = self
@@ -117,8 +117,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         nameColumn.resizingMask = .autoresizingMask        // 窗口拉宽时只有它能变
         addColumn("CPU", key: "cpu", width: 62, alignment: .right)
         addColumn("内存", key: "memory", width: 82, alignment: .right)
-        addColumn("端口", key: "ports", width: 78, alignment: .right)
-        addColumn("PID", key: "pid", width: 56, alignment: .right)
+        addColumn("端口", key: "ports", width: 74, alignment: .right)
+        addColumn("下载", key: "down", width: 58, alignment: .right)
+        addColumn("上传", key: "up", width: 58, alignment: .right)
+        addColumn("PID", key: "pid", width: 54, alignment: .right)
 
         scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 168))
         scrollView.documentView = table
@@ -304,6 +306,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             }
         case "pid":
             displayRows = list.sorted { sortAscending ? $0.pid < $1.pid : $0.pid > $1.pid }
+        case "down":
+            displayRows = list.sorted { sortAscending ? $0.down < $1.down : $0.down > $1.down }
+        case "up":
+            displayRows = list.sorted { sortAscending ? $0.up < $1.up : $0.up > $1.up }
         case "info":
             break                                   // ⓘ 列不可排序
         default:
@@ -511,6 +517,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
                 cell.textColor = .systemBlue
                 cell.toolTip = sample.ports.map { "\($0)" }.joined(separator: ", ")
             }
+        case "down":
+            cell.stringValue = sample.down > 0 ? SystemFormat.compactRate(sample.down) : ""
+            cell.textColor = sample.down > 0 ? .systemTeal : .secondaryLabelColor
+        case "up":
+            cell.stringValue = sample.up > 0 ? SystemFormat.compactRate(sample.up) : ""
+            cell.textColor = sample.up > 0 ? .systemPurple : .secondaryLabelColor
         case "pid":
             cell.stringValue = "\(sample.pid)"
             cell.textColor = .secondaryLabelColor

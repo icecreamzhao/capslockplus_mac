@@ -136,6 +136,21 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--net-test") {
+            let sampler = NetworkSampler()
+            _ = sampler.sample()                    // 建立基线
+            usleep(2_000_000)
+            let rates = sampler.sample()
+            print("pids with traffic=\(rates.count)")
+            for (pid, rate) in rates.sorted(by: { $0.value.down + $0.value.up > $1.value.down + $1.value.up }).prefix(10) {
+                let name = ProcessInspector.executablePath(pid).map { URL(fileURLWithPath: $0).lastPathComponent } ?? "?"
+                print(String(format: "  %-26@ pid=%6d down=%8@ up=%8@", name as NSString, pid,
+                             SystemFormat.compactRate(rate.down) as NSString,
+                             SystemFormat.compactRate(rate.up) as NSString))
+            }
+            return 0
+        }
+
         if CommandLine.arguments.contains("--proc-test") {
             let sampler = ProcessSampler()
             _ = sampler.sample()                    // 第一次只是建立基线
