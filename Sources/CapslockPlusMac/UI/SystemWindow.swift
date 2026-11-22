@@ -33,7 +33,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var displayRowsDirty = true
 
     private override init() {
-        panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 470, height: 560),
+        panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 540, height: 560),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
                             backing: .buffered, defer: false)
         super.init()
@@ -41,7 +41,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.minSize = NSSize(width: 400, height: 320)
+        panel.minSize = NSSize(width: 440, height: 320)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.delegate = self
@@ -99,12 +99,19 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         table.delegate = self
         table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: false)]
 
-        let nameColumn = addColumn("进程", key: "name", width: 200, alignment: .left)
+        let nameColumn = addColumn("进程", key: "name", width: 186, alignment: .left)
         nameColumn.resizingMask = .autoresizingMask
-        addColumn("CPU", key: "cpu", width: 66, alignment: .right)
-        addColumn("内存", key: "memory", width: 86, alignment: .right)
-        addColumn("端口", key: "ports", width: 84, alignment: .right)
-        addColumn("PID", key: "pid", width: 60, alignment: .right)
+        addColumn("CPU", key: "cpu", width: 62, alignment: .right)
+        addColumn("内存", key: "memory", width: 82, alignment: .right)
+        addColumn("端口", key: "ports", width: 78, alignment: .right)
+        addColumn("PID", key: "pid", width: 56, alignment: .right)
+
+        // 最右一列放 ⓘ，点开进程详情；不可排序
+        let infoColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("info"))
+        infoColumn.width = 26
+        infoColumn.minWidth = 26
+        infoColumn.title = ""
+        table.addTableColumn(infoColumn)
 
         rootButton = NSButton(title: "显示系统进程…", target: self, action: #selector(toggleRootProbe))
         rootButton.bezelStyle = .rounded
@@ -280,6 +287,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             }
         case "pid":
             displayRows = list.sorted { sortAscending ? $0.pid < $1.pid : $0.pid > $1.pid }
+        case "info":
+            break                                   // ⓘ 列不可排序
         default:
             displayRows = list.sorted { sortAscending ? $0.cpu < $1.cpu : $0.cpu > $1.cpu }
         }
@@ -344,6 +353,21 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
     }
 
+    // MARK: - 进程详情
+
+    /// 先用本地权限读一份立刻显示（毫秒级）；root 代理在跑时再异步补全
+    /// （root 才能读到别人的启动时间/启动参数/工作目录）
+    @objc private func showProcessDetail(_ sender: InfoButton) {
+        let pid = sender.pid
+        guard pid > 0 else { return }
+        ProcessDetailPanel.shared.show(ProcessInspector.inspect(pid: pid))
+        guard SystemMonitor.shared.rootActive else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let detail = RootProbe.detailFromAgent(pid: pid) else { return }
+            DispatchQueue.main.async { ProcessDetailPanel.shared.update(detail) }
+        }
+    }
+
     // MARK: - root 采样按钮
 
     /// 授权流程进行中（系统密码框弹着），期间禁掉按钮避免连点
@@ -387,6 +411,33 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let identifier = tableColumn?.identifier.rawValue else { return nil }
+
+        if identifier == "info" {
+            let list = rows()
+            guard row < list.count else { return nil }
+            let cellID = NSUserInterfaceItemIdentifier("cell-info")
+            let button: InfoButton
+            if let reused = tableView.makeView(withIdentifier: cellID, owner: self) as? InfoButton {
+                button = reused
+            } else {
+                button = InfoButton()
+                button.identifier = cellID
+                button.isBordered = false
+                button.bezelStyle = .inline
+                button.imagePosition = .imageOnly
+                button.target = self
+                button.action = #selector(showProcessDetail(_:))
+                if let symbol = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "进程详情") {
+                    button.image = symbol
+                } else {
+                    button.title = "ⓘ"
+                }
+                button.contentTintColor = .secondaryLabelColor
+            }
+            button.pid = list[row].pid
+            button.toolTip = "查看 \(list[row].name) 的详情"
+            return button
+        }
         let list = rows()                // 缓存命中，O(1)
         guard row < list.count else { return nil }
         let sample = list[row]
