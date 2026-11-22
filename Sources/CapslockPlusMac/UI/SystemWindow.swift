@@ -463,6 +463,11 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 }
 
+/// 表格里的 ⓘ 按钮：记住自己那一行是哪个 pid（cell 复用，每次都要重置）
+final class InfoButton: NSButton {
+    var pid: pid_t = 0
+}
+
 /// Esc 关闭。LSUIElement 应用要能成 key window 才能收到 Esc。
 final class SystemPanel: NSPanel {
     var onCancel: (() -> Void)?
