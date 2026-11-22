@@ -72,7 +72,8 @@ enum DebugCLI {
             let withPorts = list.filter { !$0.ports.isEmpty }.sorted { ($0.ports.first ?? 0) < ($1.ports.first ?? 0) }
             print("total=\(list.count) withPorts=\(withPorts.count)")
             for item in withPorts {
-                print(String(format: "  %-6d %-28@ pid=%d", item.ports.first ?? 0, item.name as NSString, item.pid))
+                print(String(format: "  pid=%d %-26@ ports=%@", item.pid, item.name as NSString,
+                             item.ports.map { "\($0)" }.joined(separator: ",") as NSString))
             }
             return 0
         }
