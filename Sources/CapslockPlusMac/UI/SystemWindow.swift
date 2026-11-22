@@ -93,9 +93,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         table.usesAlternatingRowBackgroundColors = true
         table.allowsColumnReordering = false
         table.allowsMultipleSelection = false
-        // ⓘ 在最左，不能再用 firstColumnOnly（那会把 ⓘ 撑开）；
-        // 改成均匀分配，但其余列都锁了 maxWidth，多出来的只能进"进程"列
-        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        // 列宽自己算：内置的几种 autoresizing 风格在"缩到最小时"会留下右侧空白
+        // （各列都被压到 minWidth 后多出来的宽度没人接），所以干脆关掉，
+        // 由 windowDidResize 把剩余宽度全给"进程"列。
+        table.columnAutoresizingStyle = .noColumnAutoresizing
         table.dataSource = self
         table.delegate = self
         table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: false)]
@@ -135,6 +136,20 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         footerLabel.frame = NSRect(x: padding, y: 12, width: width, height: 14)
         footerLabel.autoresizingMask = [.width, .maxYMargin]   // 底部锚定
         content.addSubview(footerLabel)
+    }
+
+    /// 把表格剩余宽度都给"进程"列（ⓘ 与其余列定宽）
+    private func layoutNameColumn() {
+        guard let nameColumn = table.tableColumns.first(where: { $0.identifier.rawValue == "name" }) else { return }
+        let fixed = table.tableColumns
+            .filter { $0.identifier.rawValue != "name" }
+            .reduce(CGFloat(0)) { $0 + max($1.width, $1.minWidth) }
+        let spacing = CGFloat(max(table.numberOfColumns - 1, 0)) * table.intercellSpacing.width
+        nameColumn.width = max(scrollView.contentSize.width - fixed - spacing, nameColumn.minWidth)
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        layoutNameColumn()
     }
 
     @discardableResult
@@ -184,6 +199,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         positionIfNeeded()
         refresh()
         panel.makeKeyAndOrderFront(nil)
+        layoutNameColumn()
         if observer == nil {
             observer = NotificationCenter.default.addObserver(
                 forName: SystemMonitor.didUpdate, object: nil, queue: .main) { [weak self] _ in
