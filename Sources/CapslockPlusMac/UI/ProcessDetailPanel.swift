@@ -12,6 +12,10 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     private let scrollView = NSScrollView()
     private let documentView = FlippedView()
     private var detail: ProcessDetail?
+    /// 标签 -> 数值控件，用于就地刷新（重建整页会闪，还会打断选中复制）
+    private var valueFields: [String: NSTextField] = [:]
+    private var updateTimer: Timer?
+    private var tick = 0
 
     private override init() {
         super.init()
@@ -40,17 +44,21 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
         scrollView.documentView = documentView
         content.addSubview(scrollView)
 
-        addButton("在 Finder 中显示", #selector(revealInFinder), x: padding)
-        addButton("复制全部", #selector(copyAll), x: padding + 132)
-        addButton("关闭", #selector(closePanel), x: padding + 232)
+        var buttonX = padding
+        for (title, action, width) in [("在 Finder 中显示", #selector(revealInFinder), 126.0),
+                                       ("复制全部", #selector(copyAll), 84.0),
+                                       ("关闭", #selector(closePanel), 70.0)] {
+            addButton(title, action, x: buttonX, width: CGFloat(width))
+            buttonX += CGFloat(width) + 8          // 8pt 间距，避免叠在一起
+        }
     }
 
-    private func addButton(_ title: String, _ action: Selector, x: CGFloat) {
+    private func addButton(_ title: String, _ action: Selector, x: CGFloat, width: CGFloat) {
         let button = NSButton(title: title, target: self, action: action)
         button.bezelStyle = .rounded
         button.controlSize = .small
         button.font = .systemFont(ofSize: 11)
-        button.frame = NSRect(x: x, y: 12, width: 120, height: 22)
+        button.frame = NSRect(x: x, y: 12, width: width, height: 22)
         button.autoresizingMask = [.maxXMargin, .maxYMargin]
         panel.contentView?.addSubview(button)
     }
@@ -63,18 +71,69 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
         render()
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        startUpdating()
+    }
+
+    // MARK: - 自动刷新
+
+    /// 面板开着就一直跟着采样更新：累计 CPU、内存、线程数、已运行时长都会变。
+    /// 每 2 秒就地改数值（不重建视图，避免闪烁和选中丢失）；
+    /// root 代理在跑时每 3 轮（约 6 秒）再向它要一份完整数据（补 root 进程的字段）。
+    private func startUpdating() {
+        updateTimer?.invalidate()
+        tick = 0
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.refreshTick()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
+    }
+
+    private func stopUpdating() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+    }
+
+    private func refreshTick() {
+        guard let pid = detail?.pid, panel.isVisible else { return }
+        tick += 1
+        apply(ProcessInspector.inspect(pid: pid), allowRebuild: false)
+
+        guard tick % 3 == 0, SystemMonitor.shared.rootActive else { return }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let detail = RootProbe.detailFromAgent(pid: pid) else { return }
+            DispatchQueue.main.async { self?.apply(detail, allowRebuild: true) }
+        }
+    }
+
+    /// 字段集合相同就只改数值；集合变了（root 补全）才重建
+    private func apply(_ new: ProcessDetail, allowRebuild: Bool) {
+        guard let current = detail, current.pid == new.pid else { return }
+        detail = new
+        panel.title = "进程详情 · \(new.fields.first?.value ?? "pid \(new.pid)")"
+
+        let sameShape = current.fields.map(\.label) == new.fields.map(\.label)
+        guard sameShape else {
+            if allowRebuild { render() }
+            return
+        }
+        for field in new.fields {
+            // 值没变就不动，免得把正在选中复制的内容刷掉
+            if let label = valueFields[field.label], label.stringValue != field.value {
+                label.stringValue = field.value
+            }
+        }
     }
 
     /// root 数据晚到时就地更新（先显示本地权限能读的部分，不让人干等）
     func update(_ detail: ProcessDetail) {
-        guard self.detail?.pid == detail.pid else { return }
-        self.detail = detail
-        render()
+        apply(detail, allowRebuild: true)
     }
 
     private func render() {
         guard let detail else { return }
         documentView.subviews.forEach { $0.removeFromSuperview() }
+        valueFields.removeAll()
 
         let padding: CGFloat = 14
         let labelWidth: CGFloat = 96
@@ -97,6 +156,7 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
             let valueHeight = Self.height(of: field.value, width: valueWidth)
             value.frame = NSRect(x: padding + labelWidth + 10, y: y, width: valueWidth, height: valueHeight)
             documentView.addSubview(value)
+            valueFields[field.label] = value
 
             y += max(valueHeight, 16) + 8
         }
@@ -128,7 +188,7 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     }
 
     @objc private func closePanel() {
-        panel.orderOut(nil)
+        hide()
     }
 
     /// 自检用
@@ -137,10 +197,13 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
             + " size=\(Int(panel.frame.width))x\(Int(panel.frame.height))"
     }
 
-    func hide() { panel.orderOut(nil) }
+    func hide() {
+        stopUpdating()
+        panel.orderOut(nil)
+    }
 
     func windowWillClose(_ notification: Notification) {
-        panel.orderOut(nil)
+        hide()
     }
 }
 
