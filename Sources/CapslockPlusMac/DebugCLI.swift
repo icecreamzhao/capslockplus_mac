@@ -64,6 +64,19 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--ports-list") {
+            let sampler = ProcessSampler()
+            _ = sampler.sample()
+            usleep(200_000)
+            let list = sampler.sample()
+            let withPorts = list.filter { !$0.ports.isEmpty }.sorted { ($0.ports.first ?? 0) < ($1.ports.first ?? 0) }
+            print("total=\(list.count) withPorts=\(withPorts.count)")
+            for item in withPorts {
+                print(String(format: "  %-6d %-28@ pid=%d", item.ports.first ?? 0, item.name as NSString, item.pid))
+            }
+            return 0
+        }
+
         if CommandLine.arguments.contains("--proc-test") {
             let sampler = ProcessSampler()
             _ = sampler.sample()                    // 第一次只是建立基线
