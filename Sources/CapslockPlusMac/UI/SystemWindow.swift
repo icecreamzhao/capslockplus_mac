@@ -22,6 +22,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var sortKey = "cpu"
     private var sortAscending = false
 
+    /// 排序后的行缓存。每次采样/改排序只算一次：
+    /// 原来 `rows()` 在 numberOfRows、每个可见 cell、选中行恢复里都会重新排 845 个进程，
+    /// 快速滚动时每帧几十次全量排序，主线程直接被吃满。
+    private var displayRows: [ProcessSample] = []
+    private var displayRowsDirty = true
+
     private override init() {
         panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 470, height: 560),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -208,8 +214,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
         // 重载时保住选中行（按 pid 定位，进程顺序会随 CPU 变化而变）
         let selectedPID = selectedSample()?.pid
+        displayRowsDirty = true
+        _ = rows()                       // 先重建缓存，reloadData 期间才不会再排序
         table.reloadData()
-        if let pid = selectedPID, let row = rows().firstIndex(where: { $0.pid == pid }) {
+        if let pid = selectedPID, let row = displayRows.firstIndex(where: { $0.pid == pid }) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
 
@@ -222,29 +230,35 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         footerLabel.stringValue = footer
     }
 
-    /// 按当前排序键输出
-    private func rows() -> [ProcessSample] {
+    /// 按当前排序键排序，结果缓存起来；只有采样更新或改排序才重算
+    private func rebuildRows() {
         let list = SystemMonitor.shared.processes
         switch sortKey {
         case "name":
-            return list.sorted {
+            displayRows = list.sorted {
                 let result = $0.name.localizedStandardCompare($1.name)
                 return sortAscending ? result == .orderedAscending : result == .orderedDescending
             }
         case "memory":
-            return list.sorted { sortAscending ? $0.memory < $1.memory : $0.memory > $1.memory }
+            displayRows = list.sorted { sortAscending ? $0.memory < $1.memory : $0.memory > $1.memory }
         case "ports":
             // 按端口号排，没监听端口的沉底
-            return list.sorted {
+            displayRows = list.sorted {
                 let left = $0.ports.first.map(Int.init) ?? Int.max
                 let right = $1.ports.first.map(Int.init) ?? Int.max
                 return sortAscending ? left < right : left > right
             }
         case "pid":
-            return list.sorted { sortAscending ? $0.pid < $1.pid : $0.pid > $1.pid }
+            displayRows = list.sorted { sortAscending ? $0.pid < $1.pid : $0.pid > $1.pid }
         default:
-            return list.sorted { sortAscending ? $0.cpu < $1.cpu : $0.cpu > $1.cpu }
+            displayRows = list.sorted { sortAscending ? $0.cpu < $1.cpu : $0.cpu > $1.cpu }
         }
+        displayRowsDirty = false
+    }
+
+    private func rows() -> [ProcessSample] {
+        if displayRowsDirty { rebuildRows() }
+        return displayRows
     }
 
     private func selectedSample() -> ProcessSample? {
@@ -280,16 +294,27 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let identifier = tableColumn?.identifier.rawValue else { return nil }
-        let list = rows()
+        let list = rows()                // 缓存命中，O(1)
         guard row < list.count else { return nil }
         let sample = list[row]
 
-        let cell = NSTextField(labelWithString: "")
-        cell.font = identifier == "name"
-            ? .systemFont(ofSize: 11)
-            : .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-        cell.lineBreakMode = .byTruncatingMiddle
-        cell.alignment = identifier == "name" ? .left : .right
+        // 复用 cell：NSTableView 会把滚出屏幕的视图交回来，
+        // 每次新建 NSTextField 在快速滚动时是主要的卡顿来源
+        let cellID = NSUserInterfaceItemIdentifier("cell-\(identifier)")
+        let cell: NSTextField
+        if let reused = tableView.makeView(withIdentifier: cellID, owner: self) as? NSTextField {
+            cell = reused
+            cell.textColor = .labelColor
+            cell.toolTip = nil
+        } else {
+            cell = NSTextField(labelWithString: "")
+            cell.identifier = cellID
+            cell.font = identifier == "name"
+                ? .systemFont(ofSize: 11)
+                : .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+            cell.lineBreakMode = .byTruncatingMiddle
+            cell.alignment = identifier == "name" ? .left : .right
+        }
 
         switch identifier {
         case "name":
@@ -336,8 +361,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         sortKey = key
         sortAscending = descriptor.ascending
         let selectedPID = selectedSample()?.pid
+        displayRowsDirty = true
+        _ = rows()
         table.reloadData()
-        if let pid = selectedPID, let row = rows().firstIndex(where: { $0.pid == pid }) {
+        if let pid = selectedPID, let row = displayRows.firstIndex(where: { $0.pid == pid }) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         }
     }
