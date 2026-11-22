@@ -31,8 +31,10 @@ final class SystemMonitor {
         for sample in local {
             seen.insert(sample.pid)
             if let row = byPID[sample.pid] {
+                // root 数据只覆盖 CPU/内存/端口；网络吞吐仍来自本地 nettop
                 merged.append(ProcessSample(pid: sample.pid, name: row.name, cpu: row.cpu,
-                                            memory: row.memory, ports: row.ports, measurable: true))
+                                            memory: row.memory, ports: row.ports, measurable: true,
+                                            down: sample.down, up: sample.up))
             } else {
                 merged.append(sample)
             }

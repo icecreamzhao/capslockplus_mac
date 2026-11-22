@@ -11,6 +11,9 @@ struct ProcessSample {
     var ports: [UInt16] = []
     /// CPU/内存是否有权限读取。root 进程读不到，但名字和端口照样能拿到
     var measurable: Bool = true
+    /// 网络吞吐（字节/秒），来自 nettop 两次采样求差
+    var down: Double = 0
+    var up: Double = 0
 }
 
 /// 采集进程列表。
@@ -32,6 +35,9 @@ final class ProcessSampler {
     private static let portScanEvery = 4
     private var portCache: [pid_t: [UInt16]] = [:]
     private var portScanTick = 0
+
+    /// 每进程网络吞吐：nettop 累计值求差
+    private let networkSampler = NetworkSampler()
 
     /// 进程名缓存：名字几乎不变，pid 复用极少，每轮对 840 个进程重复 proc_pidpath + 建 String 是浪费。
     /// 注意：实测这条优化对常驻内存没明显影响（74MB 不变），主要是省掉每 2 秒的字符串抖动
@@ -66,6 +72,7 @@ final class ProcessSampler {
         var nextTicks: [pid_t: UInt64] = [:]
         var results: [ProcessSample] = []
         var unreadable = 0
+        let networkRates = networkSampler.sample()
 
         for index in 0..<count {
             let pid = pids[index]
@@ -85,10 +92,12 @@ final class ProcessSampler {
                 let deltaNs = Double(toNanoseconds(stats.cpuTicks - last))
                 cpu = deltaNs / elapsedNs * 100
             }
+            let rate = networkRates[pid] ?? (down: 0, up: 0)
             results.append(ProcessSample(pid: pid, name: stats?.name ?? cachedName(pid), cpu: cpu,
                                          memory: stats?.memory ?? 0,
                                          ports: ports(for: pid),
-                                         measurable: stats != nil))
+                                         measurable: stats != nil,
+                                         down: rate.down, up: rate.up))
         }
 
         previous = nextTicks
