@@ -214,20 +214,24 @@ final class SystemSampler {
             previousInterfaces = counters.mapValues { ($0.rx, $0.tx) }
             previousInterfacesAt = now
         }
-        guard let previousAt = previousInterfacesAt else {
-            return ([], 0, 0, 0, 0, false)      // 第一次没有基线
+        // 第一次没有基线：速率给 0，但网卡清单照样要输出，
+        // 否则窗口刚打开那两秒会显示"网络 —"，像是没读到
+        var elapsed = 0.0
+        if let previousAt = previousInterfacesAt {
+            let delta = now.timeIntervalSince(previousAt)
+            if delta > 0.2 { elapsed = delta }
         }
-        let elapsed = now.timeIntervalSince(previousAt)
-        guard elapsed > 0.2 else { return ([], 0, 0, 0, 0, false) }
 
         var interfaces: [InterfaceRate] = []
         var physicalDown = 0.0, physicalUp = 0.0, tunnelDown = 0.0, tunnelUp = 0.0
         var hotspotDown = 0.0, hotspotUp = 0.0
 
         for (name, current) in counters {
-            guard let last = previousInterfaces[name] else { continue }
-            let down = current.rx >= last.rx ? Double(current.rx - last.rx) / elapsed : 0
-            let up = current.tx >= last.tx ? Double(current.tx - last.tx) / elapsed : 0
+            var down = 0.0, up = 0.0
+            if elapsed > 0, let last = previousInterfaces[name] {
+                down = current.rx >= last.rx ? Double(current.rx - last.rx) / elapsed : 0
+                up = current.tx >= last.tx ? Double(current.tx - last.tx) / elapsed : 0
+            }
             interfaces.append(InterfaceRate(name: name, kind: current.kind, down: down, up: up,
                                             hasAddress: addressed.contains(name)))
             switch current.kind {
