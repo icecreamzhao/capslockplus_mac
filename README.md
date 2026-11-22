@@ -123,10 +123,24 @@ CPU 总占用   mach host_statistics(HOST_CPU_LOAD_INFO)
 
 刷新节奏：进程与系统指标每 2 秒一次（全量约 17ms，在后台队列）；端口几乎不变，降频到每 8 秒扫一次，其余采样用缓存。
 
+**要看系统进程的 CPU/内存**：点窗口左下的 **显示系统进程…**，系统弹一次授权框，通过后：
+
+```
+以 root 身份后台跑一个采样代理（就是本程序自己的 --root-agent 模式），
+每 2 秒把全量进程数据写进临时目录，主程序读文件合并 —— 只弹一次密码
+之后 WindowServer、launchd 这些系统进程的 CPU / 内存也能看到
+再点一次变「停止 root 采样」；关掉窗口时代理会空转不采样，不白烧 CPU
+代理随主程序退出，不留孤儿 root 进程
+```
+
+实现方式刻意避开 SMJobBless 特权 helper（那要 Developer ID + 公证 + 安装器）：
+用 `osascript ... with administrator privileges`，系统自带的授权框，零安装。
+想彻底停掉：`pkill -f -- '--root-agent'`（需要 root）。
+
 **已知限制**：root 拥有的进程（WindowServer、系统守护进程等）读不到 CPU 与内存 ——
 `proc_pid_rusage` / `PROC_PIDTASKINFO` 对它们返回 EPERM，`sysctl KERN_PROC_ALL` 在公开 SDK 里
 RSS 字段是占位符、CPU 字段恒为 0。这类行会保留在表里（名字和端口照样能读），CPU/内存显示 `—`，
-窗口底部注明有多少个。活动监视器能显示是因为它带 `com.apple.system-task-ports` 这类 entitlement。
+窗口底部注明有多少个 —— 点「显示系统进程…」用 root 读一次就能补上。活动监视器能显示是因为它带 `com.apple.system-task-ports` 这类 entitlement。
 
 - 关掉菜单栏读数：`keymap.json` 顶层加 `"systemReadout": false`
 - 改刷新间隔：`"systemSampleMs": 2000`（毫秒，夹在 500–10000；越小越费电）
