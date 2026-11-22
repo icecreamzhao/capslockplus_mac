@@ -287,7 +287,15 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         for item in snapshot.interfaces {
             let active = item.down + item.up > 0
             let isPrimary = item.name == primary
-            guard item.hasAddress || active || isPrimary else { continue }
+            // 物理口按"有没有 IP"判断在用；隧道/虚拟/热点只在真有流量时才提
+            // （utun* 一般都带 IPv6 link-local 地址，按地址判会一次性刷出七八条）
+            let relevant: Bool
+            switch item.kind {
+            case .physical: relevant = item.hasAddress || isPrimary || active
+            case .tunnel, .hotspot: relevant = active || isPrimary
+            case .virtual, .wirelessDirect: relevant = active
+            }
+            guard relevant else { continue }
             guard networkParts.count < 3 else { break }
             let marker = isPrimary ? "★" : ""
             networkParts.append("\(item.displayName)\(marker) ↓\(SystemFormat.compactRate(item.down)) ↑\(SystemFormat.compactRate(item.up))")
@@ -297,6 +305,11 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         // 悬停看全部网卡：未启用的也列出来，并标出类型
         var tooltip: [String] = ["网卡（★ = 默认路由）"]
         for item in snapshot.interfaces {
+            switch item.kind {
+            case .physical, .tunnel, .hotspot: break
+            case .virtual, .wirelessDirect:
+                guard item.down + item.up > 0 else { continue }   // 虚拟口没流量就不列
+            }
             let status = item.hasAddress ? "" : "·未启用"
             let primaryMark = item.name == primary ? "★ " : ""
             tooltip.append("\(primaryMark)\(item.displayName)  \(item.kind.label)\(status)"
@@ -404,6 +417,9 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let elapsed = Date().timeIntervalSince(start) * 1000
         return (elapsed / Double(frames), reloadMs)
     }
+
+    /// 自检用：网卡明细那一行的实际文本
+    var debugNetworkLine: String { networkLabel.stringValue }
 
     /// 自检用：模拟拖拽改变窗口尺寸（跑一小段 runloop 让布局生效）
     func debugResize(to size: NSSize) {

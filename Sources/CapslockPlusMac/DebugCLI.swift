@@ -192,6 +192,7 @@ enum DebugCLI {
             print("after shrink=\(controller.debugFrame)")
             ProcessDetailPanel.shared.show(ProcessInspector.inspect(pid: getpid()))
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            print("net line: \(controller.debugNetworkLine)")
             print("detail panel: \(ProcessDetailPanel.shared.debugInfo)")
             let before = ProcessDetailPanel.shared.valueFor("启动时间")
             RunLoop.current.run(until: Date().addingTimeInterval(3.2))
