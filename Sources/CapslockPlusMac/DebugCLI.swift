@@ -131,6 +131,11 @@ enum DebugCLI {
             print("after grow=\(controller.debugFrame)")
             controller.debugResize(to: NSSize(width: 420, height: 360))
             print("after shrink=\(controller.debugFrame)")
+            ProcessDetailPanel.shared.show(ProcessInspector.inspect(pid: getpid()))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            print("detail panel: \(ProcessDetailPanel.shared.debugInfo)")
+            ProcessDetailPanel.shared.hide()
+
             let bench = controller.debugScrollBench()
             print(String(format: "scroll bench: %.2f ms/frame, reload=%.2f ms", bench.frameMs, bench.reloadMs))
             controller.hide()

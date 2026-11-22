@@ -92,7 +92,7 @@ enum ProcessInspector {
             mach_timebase_info(&timebase)
             let ticks = task.pti_total_user &+ task.pti_total_system
             let seconds = Double(ticks) * Double(timebase.numer) / Double(timebase.denom) / 1e9
-            add("累计 CPU", "\(duration(seconds))（\(String(format: "%.1f", seconds)) 秒）")
+            add("累计 CPU", String(format: "%.1f 秒", seconds))
         }
 
         var usage = rusage_info_v4()

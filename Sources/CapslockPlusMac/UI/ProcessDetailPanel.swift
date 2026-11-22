@@ -131,6 +131,14 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
     }
 
+    /// 自检用
+    var debugInfo: String {
+        "visible=\(panel.isVisible ? 1 : 0) fields=\(detail?.fields.count ?? 0)"
+            + " size=\(Int(panel.frame.width))x\(Int(panel.frame.height))"
+    }
+
+    func hide() { panel.orderOut(nil) }
+
     func windowWillClose(_ notification: Notification) {
         panel.orderOut(nil)
     }
