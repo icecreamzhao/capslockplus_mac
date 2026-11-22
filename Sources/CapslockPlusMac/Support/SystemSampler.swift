@@ -244,6 +244,18 @@ enum SystemFormat {
         return mb < 1024 ? String(format: "%.1f MB/s", mb) : String(format: "%.2f GB/s", mb / 1024)
     }
 
+    /// 菜单栏用的紧凑速率：最多 4 个字符（0 / 46K / 4.0M / 999M / 1.2G）
+    static func compactRate(_ bytesPerSecond: Double) -> String {
+        guard bytesPerSecond.isFinite, bytesPerSecond > 0 else { return "0" }
+        let kb = bytesPerSecond / 1024
+        if kb < 10 { return String(format: "%.1fK", kb) }
+        if kb < 1024 { return String(format: "%.0fK", kb) }
+        let mb = kb / 1024
+        if mb < 10 { return String(format: "%.1fM", mb) }
+        if mb < 1024 { return String(format: "%.0fM", mb) }
+        return String(format: "%.1fG", mb / 1024)
+    }
+
     static func duration(_ seconds: TimeInterval) -> String {
         guard seconds.isFinite, seconds > 0 else { return "0 分钟" }
         let totalMinutes = Int(seconds / 60)

@@ -112,9 +112,13 @@ enum DebugCLI {
             print(String(format: "caps+100%%  width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
 
             // 宽度必须与数值位数无关，否则状态栏会随数字跳动
+            view.update(caps: false, cpu: "16%", mem: "35%", down: "4.0M", up: "46K")
+            print(String(format: "with net   width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
+
             var widths: Set<Double> = []
-            for sample in [("8%", "9%"), ("16%", "35%"), ("100%", "100%"), ("0%", "7%")] {
-                view.update(caps: false, cpu: sample.0, mem: sample.1)
+            for sample in [("8%", "9%", "0", "0"), ("16%", "35%", "46K", "1.2K"),
+                           ("100%", "100%", "999M", "9.9M"), ("0%", "7%", "1.0G", "0")] {
+                view.update(caps: false, cpu: sample.0, mem: sample.1, down: sample.2, up: sample.3)
                 widths.insert(Double(view.requiredWidth()))
             }
             print("width stability: \(widths.count == 1 ? "稳定 ✓" : "抖动 ✗") widths=\(widths.sorted())")

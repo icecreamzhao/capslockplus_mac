@@ -92,7 +92,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func refreshStatusTitle() {
         let locked = HIDCapsLock.shared.isLocked
         let readout = Config.shared.systemReadout ? SystemMonitor.shared.readoutParts : nil
-        readoutView?.update(caps: locked, cpu: readout?.cpu ?? "", mem: readout?.mem ?? "")
+        readoutView?.update(caps: locked,
+                            cpu: readout?.cpu ?? "",
+                            mem: readout?.mem ?? "",
+                            down: readout?.down ?? "",
+                            up: readout?.up ?? "")
         // 自绘视图的画布宽度要自己告诉状态栏
         if let view = readoutView {
             let width = view.requiredWidth()

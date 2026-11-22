@@ -25,17 +25,22 @@ final class StatusReadoutView: NSView {
     private var capsOn = false
     private var cpuText = ""
     private var memText = ""
+    private var downText = ""
+    private var upText = ""
 
     override var isFlipped: Bool { true }
 
     /// 点击交给 NSStatusBarButton 处理，否则菜单打不开
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func update(caps: Bool, cpu: String, mem: String) {
-        guard caps != capsOn || cpu != cpuText || mem != memText else { return }
+    func update(caps: Bool, cpu: String, mem: String, down: String = "", up: String = "") {
+        guard caps != capsOn || cpu != cpuText || mem != memText
+                || down != downText || up != upText else { return }
         capsOn = caps
         cpuText = cpu
         memText = mem
+        downText = down
+        upText = up
         needsDisplay = true
     }
 
@@ -58,11 +63,19 @@ final class StatusReadoutView: NSView {
         // 列位置和整个状态栏长度都会变，看起来就是数字在跳。
         if !cpuText.isEmpty {
             result.append(Column(label: "CPU", value: cpuText, labelFont: Metrics.labelFont,
-                                 width: columnWidth(label: "CPU", value: cpuText)))
+                                 width: columnWidth(label: "CPU", reserves: Self.percentReserve)))
         }
         if !memText.isEmpty {
             result.append(Column(label: "内存", value: memText, labelFont: Metrics.labelFont,
-                                 width: columnWidth(label: "内存", value: memText)))
+                                 width: columnWidth(label: "内存", reserves: Self.percentReserve)))
+        }
+        if !downText.isEmpty {
+            result.append(Column(label: "下载", value: downText, labelFont: Metrics.labelFont,
+                                 width: columnWidth(label: "下载", reserves: Self.rateReserve)))
+        }
+        if !upText.isEmpty {
+            result.append(Column(label: "上传", value: upText, labelFont: Metrics.labelFont,
+                                 width: columnWidth(label: "上传", reserves: Self.rateReserve)))
         }
         return result
     }
@@ -76,16 +89,16 @@ final class StatusReadoutView: NSView {
         return ceil(content + 6)          // 两侧各留 3pt，别贴着图标
     }
 
-    /// 标签与数值取宽，并且至少在 `reserveText` 这个宽度以上（百分比最多三位数）
-    private func columnWidth(label: String, value: String) -> CGFloat {
-        let candidates = [textWidth(label, font: Metrics.labelFont),
-                          textWidth(Self.reserveText, font: Metrics.valueFont),
-                          textWidth(value, font: Metrics.valueFont)]
-        return candidates.max() ?? 0
+    /// 列宽只看标签和最坏情况的数值样本，**不看当前值** ——
+    /// 否则 8% → 16% → 100% 时列宽变化，整条状态栏会跟着抖。
+    private func columnWidth(label: String, reserves: [String]) -> CGFloat {
+        let labelWidth = textWidth(label, font: Metrics.labelFont)
+        let valueWidth = reserves.map { textWidth($0, font: Metrics.valueFont) }.max() ?? 0
+        return ceil(max(labelWidth, valueWidth))
     }
 
-    /// 数值预留宽度用的样本（百分比 0–100%）
-    private static let reserveText = "100%"
+    private static let percentReserve = ["100%"]
+    private static let rateReserve = ["999M", "1.0G", "9.9K"]
 
     private func textWidth(_ text: String, font: NSFont) -> CGFloat {
         ceil((text as NSString).size(withAttributes: [.font: font]).width)
@@ -109,7 +122,8 @@ final class StatusReadoutView: NSView {
         for column in columns() {
             draw(text: column.label, font: column.labelFont, color: column.labelFont === Metrics.capsFont
                  ? .systemOrange : .secondaryLabelColor,
-                 rect: NSRect(x: x, y: top, width: column.width, height: Metrics.labelHeight))
+                 rect: NSRect(x: x, y: top, width: column.width, height: Metrics.labelHeight),
+                 rightAligned: true)
             if !column.value.isEmpty {
                 draw(text: column.value, font: Metrics.valueFont, color: .labelColor,
                      rect: NSRect(x: x, y: top + Metrics.labelHeight, width: column.width,
