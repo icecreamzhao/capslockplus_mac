@@ -64,39 +64,6 @@ enum DebugCLI {
             return 0
         }
 
-        if let index = CommandLine.arguments.firstIndex(of: "--ports-debug"),
-           index + 1 < CommandLine.arguments.count,
-           let pid = pid_t(CommandLine.arguments[index + 1]) {
-            var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: 256)
-            let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds,
-                                    Int32(fds.count * MemoryLayout<proc_fdinfo>.size))
-            print("pid=\(pid) listfds bytes=\(bytes) errno=\(errno)")
-            let count = max(Int(bytes) / MemoryLayout<proc_fdinfo>.size, 0)
-            let infoSize = Int32(MemoryLayout<socket_fdinfo>.size)
-            for i in 0..<count {
-                let fd = fds[i]
-                guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { continue }
-                var info = socket_fdinfo()
-                let r = proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, infoSize)
-                print("  fd=\(fd.proc_fd) r=\(r)/\(infoSize) kind=\(info.psi.soi_kind) state=\(info.psi.soi_proto.pri_tcp.tcpsi_state) lport=\(info.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)")
-            }
-            // 同一份数据走 sampler 的路径，看它拿到什么
-            let sampler = ProcessSampler()
-            _ = sampler.sample()
-            usleep(300_000)
-            let list = sampler.sample()
-            print("sampler list=\(list.count) unreadable=\(sampler.unreadableCount) withPorts=\(list.filter { !$0.ports.isEmpty }.count)")
-            for item in list where !item.ports.isEmpty {
-                print("  sampler pid=\(item.pid) name=\(item.name) ports=\(item.ports)")
-            }
-            if let mine = list.first(where: { $0.pid == pid }) {
-                print("  target in list: name=\(mine.name) cpu=\(mine.cpu) ports=\(mine.ports)")
-            } else {
-                print("  target NOT in list (rusage 被拒 -> 整条跳过)")
-            }
-            return 0
-        }
-
         if CommandLine.arguments.contains("--proc-test") {
             let sampler = ProcessSampler()
             _ = sampler.sample()                    // 第一次只是建立基线
@@ -107,7 +74,10 @@ enum DebugCLI {
                        p.name as NSString, p.pid, p.cpu, Double(p.memory) / 1048576,
                        (p.ports.isEmpty ? "-" : p.ports.map { "\($0)" }.joined(separator: ",")) as NSString)
             }
-            print("count=\(list.count)")
+            let started = Date()
+            _ = sampler.sample()
+            let cost = Date().timeIntervalSince(started) * 1000
+            print(String(format: "count=%d scan=%.1fms", list.count, cost))
             print("--- top CPU ---")
             for item in list.prefix(8) { print(line(item)) }
             print("--- top MEM ---")

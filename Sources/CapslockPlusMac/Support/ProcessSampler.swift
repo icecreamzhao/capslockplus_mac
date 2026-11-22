@@ -28,6 +28,11 @@ final class ProcessSampler {
     /// 而不是假装系统里只有 N-M 个进程。
     private(set) var unreadableCount = 0
 
+    /// 端口不需要 2 秒扫一次（几乎不变），按 `portScanEvery` 降频，其余采样用缓存
+    private static let portScanEvery = 4
+    private var portCache: [pid_t: [UInt16]] = [:]
+    private var portScanTick = 0
+
     private var previous: [pid_t: UInt64] = [:]     // pid -> 累计 CPU tick
     private var previousAt: UInt64 = 0
     private var timebase = mach_timebase_info_data_t()
@@ -42,9 +47,13 @@ final class ProcessSampler {
 
     /// 返回按 CPU 降序的进程列表；第一次调用时所有 CPU 都是 0（没有上一次样本可比）
     func sample() -> [ProcessSample] {
-        let capacity = 4096
+        // 坑：`proc_listallpids` 的返回值是 **pid 个数**，不是字节数；
+        // 按字节除会只拿到 1/4 的进程（实测 838 个进程只显示 209 个，
+        // 端口扫描也因此一个都扫不到）。这里改用语义明确的 `proc_listpids`。
+        let capacity = 8192
         var pids = [pid_t](repeating: 0, count: capacity)
-        let bytes = proc_listallpids(&pids, Int32(capacity * MemoryLayout<pid_t>.size))
+        let bytes = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids,
+                                  Int32(capacity * MemoryLayout<pid_t>.size))
         let count = max(Int(bytes) / MemoryLayout<pid_t>.size, 0)
         guard count > 0 else { return [] }
 
@@ -74,13 +83,15 @@ final class ProcessSampler {
             }
             results.append(ProcessSample(pid: pid, name: stats?.name ?? processName(pid), cpu: cpu,
                                          memory: stats?.memory ?? 0,
-                                         ports: listeningPorts(of: pid),
+                                         ports: ports(for: pid),
                                          measurable: stats != nil))
         }
 
         previous = nextTicks
         previousAt = now
         unreadableCount = unreadable
+        if portScanTick % Self.portScanEvery == 0 { refreshPortCache(results) }
+        portScanTick &+= 1
         return results.sorted { $0.cpu > $1.cpu }
     }
 
@@ -122,6 +133,17 @@ final class ProcessSampler {
     ///   - 端口在 `insi_lport` 里是网络序、按小端读出来是"字节反的"（8080 → 36895），必须 byteSwapped
     ///   - 同一个进程常有 IPv4/IPv6 两组 fd 监听同一端口，要按端口去重
     /// 全量扫一遍约 5ms（200 多个进程），2 秒一次可以接受，不需要单独降频。
+    private func ports(for pid: pid_t) -> [UInt16] {
+        if portScanTick % Self.portScanEvery == 0 {
+            return listeningPorts(of: pid)
+        }
+        return portCache[pid] ?? []
+    }
+
+    private func refreshPortCache(_ list: [ProcessSample]) {
+        portCache = Dictionary(uniqueKeysWithValues: list.map { ($0.pid, $0.ports) })
+    }
+
     private func listeningPorts(of pid: pid_t) -> [UInt16] {
         var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: 256)
         let bytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds,
@@ -132,17 +154,12 @@ final class ProcessSampler {
 
         var ports = Set<UInt16>()
         let infoSize = Int32(MemoryLayout<socket_fdinfo>.size)
-        if ProcessInfo.processInfo.environment["CW_PORT_DEBUG"] == "1" {
-            FileHandle.standardError.write("[dbg] pid=\(pid) fds=\(count) bytes=\(bytes)\n".data(using: .utf8)!)
-        }
+
         for index in 0..<count {
             let fd = fds[index]
             guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { continue }
             var info = socket_fdinfo()
             guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, infoSize) == infoSize else { continue }
-            if ProcessInfo.processInfo.environment["CW_PORT_DEBUG"] == "1" {
-                FileHandle.standardError.write("[dbg]   fd=\(fd.proc_fd) r=ok kind=\(info.psi.soi_kind) state=\(info.psi.soi_proto.pri_tcp.tcpsi_state)\n".data(using: .utf8)!)
-            }
             guard info.psi.soi_kind == SOCKINFO_TCP else { continue }
             guard info.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else { continue }
             let raw = UInt16(truncatingIfNeeded: info.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)
