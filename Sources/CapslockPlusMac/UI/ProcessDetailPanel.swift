@@ -221,6 +221,11 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
             + " size=\(Int(panel.frame.width))x\(Int(panel.frame.height)) buttons=\(buttons)"
     }
 
+    /// 自检用：当前字段标签顺序
+    var debugLabels: String {
+        detail?.fields.map(\.label).joined(separator: " / ") ?? "-"
+    }
+
     /// 自检用：读某个字段当前显示的文本
     func valueFor(_ label: String) -> String {
         valueFields[label]?.stringValue ?? "-"

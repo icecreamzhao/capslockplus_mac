@@ -197,6 +197,7 @@ enum DebugCLI {
             RunLoop.current.run(until: Date().addingTimeInterval(3.2))
             let after = ProcessDetailPanel.shared.valueFor("启动时间")
             print("auto refresh: 启动时间 \"\(before)\" -> \"\(after)\"" + (before == after ? "  ✗ 没刷新" : "  ✓ 已刷新"))
+            print("fields: \(ProcessDetailPanel.shared.debugLabels)")
             ProcessDetailPanel.shared.hide()
 
             let bench = controller.debugScrollBench()
