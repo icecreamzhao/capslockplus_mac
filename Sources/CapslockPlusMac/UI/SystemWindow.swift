@@ -93,32 +93,28 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         table.usesAlternatingRowBackgroundColors = true
         table.allowsColumnReordering = false
         table.allowsMultipleSelection = false
-        // 窗口拉宽时由"进程"列吸收多余空间，其余列保持定宽
-        table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        // ⓘ 在最左，不能再用 firstColumnOnly（那会把 ⓘ 撑开）；
+        // 改成均匀分配，但其余列都锁了 maxWidth，多出来的只能进"进程"列
+        table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.dataSource = self
         table.delegate = self
         table.sortDescriptors = [NSSortDescriptor(key: "cpu", ascending: false)]
 
-        let nameColumn = addColumn("进程", key: "name", width: 186, alignment: .left)
-        nameColumn.resizingMask = .autoresizingMask
+        // ⓘ 放在最左（进程名左边），点开详情；不可排序、不参与宽度伸缩
+        let infoColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("info"))
+        infoColumn.width = 24
+        infoColumn.minWidth = 24
+        infoColumn.maxWidth = 24
+        infoColumn.title = ""
+        infoColumn.resizingMask = []
+        table.addTableColumn(infoColumn)
+
+        let nameColumn = addColumn("进程", key: "name", width: 186, alignment: .left, flex: true)
+        nameColumn.resizingMask = .autoresizingMask        // 窗口拉宽时只有它能变
         addColumn("CPU", key: "cpu", width: 62, alignment: .right)
         addColumn("内存", key: "memory", width: 82, alignment: .right)
         addColumn("端口", key: "ports", width: 78, alignment: .right)
         addColumn("PID", key: "pid", width: 56, alignment: .right)
-
-        // 最右一列放 ⓘ，点开进程详情；不可排序
-        let infoColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("info"))
-        infoColumn.width = 26
-        infoColumn.minWidth = 26
-        infoColumn.title = ""
-        table.addTableColumn(infoColumn)
-
-        rootButton = NSButton(title: "显示系统进程…", target: self, action: #selector(toggleRootProbe))
-        rootButton.bezelStyle = .rounded
-        rootButton.controlSize = .small
-        rootButton.font = .systemFont(ofSize: 11)
-        rootButton.frame = NSRect(x: padding, y: 30, width: 132, height: 22)
-        content.addSubview(rootButton)
 
         scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 168))
         scrollView.documentView = table
@@ -142,11 +138,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     @discardableResult
-    private func addColumn(_ title: String, key: String, width: CGFloat, alignment: NSTextAlignment) -> NSTableColumn {
+    @discardableResult
+    private func addColumn(_ title: String, key: String, width: CGFloat, alignment: NSTextAlignment,
+                           flex: Bool = false) -> NSTableColumn {
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(key))
         column.title = title
         column.width = width
         column.minWidth = key == "name" ? 120 : 50   // 名字列别被压到看不清
+        if !flex { column.maxWidth = width }         // 定宽列不给伸缩空间
         column.headerCell.alignment = alignment
         column.sortDescriptorPrototype = NSSortDescriptor(key: key, ascending: key == "name")
         table.addTableColumn(column)
@@ -349,7 +348,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let frame = panel.frame
         return "\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"
             + " visible=\(panel.isVisible ? 1 : 0) rows=\(table.numberOfRows)"
-            + " tableW=\(Int(scrollView.frame.width))/colW=\(Int(table.tableColumns.first?.width ?? 0))"
+            + " tableW=\(Int(scrollView.frame.width))"
+            + " cols=[" + table.tableColumns.map { "\($0.identifier.rawValue):\(Int($0.width))" }.joined(separator: " ") + "]"
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
     }
 
