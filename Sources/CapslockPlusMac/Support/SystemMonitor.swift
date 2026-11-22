@@ -15,6 +15,34 @@ final class SystemMonitor {
     private(set) var processes: [ProcessSample] = []
     /// 读不到指标的进程数（root 拥有的）
     var unreadableProcessCount: Int { processSampler.unreadableCount }
+
+    /// root 代理是否在正常输出
+    var rootActive: Bool { RootProbe.isActive }
+
+    /// 把 root 数据合并进本地采样：同 pid 以 root 为准，本地没有的补进来
+    private static func merge(local: [ProcessSample], root: [RootProcessRow]) -> [ProcessSample] {
+        var byPID: [pid_t: RootProcessRow] = [:]
+        for row in root { byPID[row.pid] = row }
+
+        var merged: [ProcessSample] = []
+        merged.reserveCapacity(max(local.count, root.count))
+        var seen = Set<pid_t>()
+
+        for sample in local {
+            seen.insert(sample.pid)
+            if let row = byPID[sample.pid] {
+                merged.append(ProcessSample(pid: sample.pid, name: row.name, cpu: row.cpu,
+                                            memory: row.memory, ports: row.ports, measurable: true))
+            } else {
+                merged.append(sample)
+            }
+        }
+        for row in root where !seen.contains(row.pid) {
+            merged.append(ProcessSample(pid: row.pid, name: row.name, cpu: row.cpu,
+                                        memory: row.memory, ports: row.ports, measurable: true))
+        }
+        return merged.sorted { $0.cpu > $1.cpu }
+    }
     private let queue = DispatchQueue(label: "capslock.sysmon", qos: .utility)
     private var timer: Timer?
 
@@ -42,11 +70,15 @@ final class SystemMonitor {
         Log.info("systemMonitor stop")
     }
 
-    private func sampleNow() {
+    func sampleNow() {
         queue.async { [weak self] in
             guard let self else { return }
             let fresh = self.sampler.sample()
-            let list = self.processSampler.sample()
+            var list = self.processSampler.sample()
+            // root 代理在跑就用它的数据覆盖（它能看到全部进程的 CPU/内存）
+            if let rootRows = RootProbe.currentRows(), !rootRows.isEmpty {
+                list = Self.merge(local: list, root: rootRows)
+            }
             DispatchQueue.main.async {
                 self.snapshot = fresh
                 self.processes = list

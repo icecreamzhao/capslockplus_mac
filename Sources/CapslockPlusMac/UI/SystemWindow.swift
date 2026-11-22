@@ -16,6 +16,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var footerLabel = NSTextField(labelWithString: "")
     private var table = NSTableView()
     private var scrollView = NSScrollView()
+    private var rootButton = NSButton()
     private var observer: NSObjectProtocol?
     private var scrollObserver: NSObjectProtocol?
     /// 最后一次滚动的时间；滚动中不重载表格，避免用户手指还在滑的时候被整表刷新打断
@@ -105,7 +106,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         addColumn("端口", key: "ports", width: 84, alignment: .right)
         addColumn("PID", key: "pid", width: 60, alignment: .right)
 
-        scrollView = NSScrollView(frame: NSRect(x: padding, y: 34, width: width, height: height - 144))
+        rootButton = NSButton(title: "显示系统进程…", target: self, action: #selector(toggleRootProbe))
+        rootButton.bezelStyle = .rounded
+        rootButton.controlSize = .small
+        rootButton.font = .systemFont(ofSize: 11)
+        rootButton.frame = NSRect(x: padding, y: 30, width: 132, height: 22)
+        content.addSubview(rootButton)
+
+        scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 168))
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -121,7 +129,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
         footerLabel.font = .systemFont(ofSize: 10)
         footerLabel.textColor = .tertiaryLabelColor
-        footerLabel.frame = NSRect(x: padding, y: 14, width: width, height: 14)
+        footerLabel.frame = NSRect(x: padding, y: 12, width: width, height: 14)
         footerLabel.autoresizingMask = [.width, .maxYMargin]   // 底部锚定
         content.addSubview(footerLabel)
     }
@@ -236,8 +244,16 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let count = SystemMonitor.shared.processes.count
         let hidden = SystemMonitor.shared.unreadableProcessCount
         let age = max(Int(Date().timeIntervalSince(snapshot.sampledAt).rounded()), 0)
+        let rootActive = SystemMonitor.shared.rootActive
+        rootButton.title = rootActive ? "停止 root 采样" : "显示系统进程…"
+        rootButton.isEnabled = !rootBusy
+
         var footer = "共 \(count) 个进程"
-        if hidden > 0 { footer += "（\(hidden) 个系统进程只能显示名字/端口，CPU·内存需 root）" }
+        if rootActive {
+            footer += "（root 采样中：系统进程的 CPU/内存都已包含）"
+        } else if hidden > 0 {
+            footer += "（\(hidden) 个系统进程只能显示名字/端口，点左下按钮用 root 读取）"
+        }
         footer += " · 点表头排序 · 每 \(Config.shared.systemSampleMs / 1000) 秒刷新 · \(age) 秒前"
         footerLabel.stringValue = footer
     }
@@ -324,6 +340,41 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             + " visible=\(panel.isVisible ? 1 : 0) rows=\(table.numberOfRows)"
             + " tableW=\(Int(scrollView.frame.width))/colW=\(Int(table.tableColumns.first?.width ?? 0))"
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
+    }
+
+    // MARK: - root 采样按钮
+
+    /// 授权流程进行中（系统密码框弹着），期间禁掉按钮避免连点
+    private var rootBusy = false
+
+    @objc private func toggleRootProbe() {
+        if SystemMonitor.shared.rootActive {
+            RootProbe.stop()
+            refresh()
+            return
+        }
+
+        rootBusy = true
+        rootButton.title = "等待授权…"
+        rootButton.isEnabled = false
+        RootProbe.start { [weak self] error in
+            guard let self else { return }
+            self.rootBusy = false
+            self.rootButton.isEnabled = true
+            if let error {
+                self.rootButton.title = "显示系统进程…"
+                let alert = NSAlert()
+                alert.messageText = "没能拿到 root 权限"
+                alert.informativeText = error
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "好")
+                alert.runModal()
+            } else {
+                self.rootButton.title = "停止 root 采样"
+                SystemMonitor.shared.sampleNow()
+                self.refresh()
+            }
+        }
     }
 
     // MARK: - 表格数据源

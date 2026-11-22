@@ -7,6 +7,12 @@ import AVFoundation
 /// `run()` 返回 nil 表示"不是子命令"，main.swift 继续启动 App。
 enum DebugCLI {
     static func run() -> Int32? {
+        // root 代理模式：由 root 权限拉起，只做采样写文件，不碰配置/界面
+        if let index = CommandLine.arguments.firstIndex(of: "--root-agent"),
+           index + 1 < CommandLine.arguments.count {
+            return RootProbe.runAgent(directory: CommandLine.arguments[index + 1])
+        }
+
         // 子命令也读真实配置：否则 Config.shared 只有代码里的默认值，
         // 看起来"配置改了不生效"（实际是这条进程根本没加载 keymap.json）。
         Config.shared.loadOrCreate()
