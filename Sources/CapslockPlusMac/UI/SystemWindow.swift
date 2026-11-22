@@ -150,6 +150,15 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
         content.addSubview(scrollView)
 
+        // root 采样按钮：之前把 ⓘ 挪到最左时，按列替换的代码把这段一起吞掉了
+        rootButton = NSButton(title: "显示系统进程…", target: self, action: #selector(toggleRootProbe))
+        rootButton.bezelStyle = .rounded
+        rootButton.controlSize = .small
+        rootButton.font = .systemFont(ofSize: 11)
+        rootButton.frame = NSRect(x: padding, y: 30, width: 132, height: 22)
+        rootButton.autoresizingMask = [.maxXMargin, .maxYMargin]
+        content.addSubview(rootButton)
+
         footerLabel.font = .systemFont(ofSize: 10)
         footerLabel.textColor = .tertiaryLabelColor
         footerLabel.frame = NSRect(x: padding, y: 12, width: width, height: 14)
@@ -399,6 +408,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let frame = panel.frame
         return "\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"
             + " visible=\(panel.isVisible ? 1 : 0) rows=\(table.numberOfRows)"
+            + " rootBtn=\(rootButton.superview != nil ? "1" : "0")@\(Int(rootButton.frame.minY))"
             + " tableW=\(Int(scrollView.frame.width))"
             + " cols=[" + table.tableColumns.map { "\($0.identifier.rawValue):\(Int($0.width))" }.joined(separator: " ") + "]"
             + " tableFrameW=\(Int(table.frame.width)) contentW=\(Int(scrollView.contentSize.width))"
