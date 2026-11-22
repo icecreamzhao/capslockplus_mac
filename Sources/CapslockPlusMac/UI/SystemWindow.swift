@@ -41,7 +41,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
-        panel.minSize = NSSize(width: 440, height: 320)
+        // 6 列定宽列最小加起来就 342pt，窗口再窄会出现横向溢出，所以下限设 500
+        panel.minSize = NSSize(width: 500, height: 340)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.delegate = self
