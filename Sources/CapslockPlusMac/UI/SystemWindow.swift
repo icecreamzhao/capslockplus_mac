@@ -90,6 +90,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         table = NSTableView()
         table.style = .inset
         table.rowHeight = 20
+        // .inset 风格默认 intercellSpacing 是 17pt，6 列白吃掉 85pt，进程名被挤得很窄
+        table.intercellSpacing = NSSize(width: 8, height: 2)
         table.usesAlternatingRowBackgroundColors = true
         table.allowsColumnReordering = false
         table.allowsMultipleSelection = false
