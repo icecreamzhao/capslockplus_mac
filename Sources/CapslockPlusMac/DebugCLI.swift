@@ -84,6 +84,17 @@ enum DebugCLI {
             return 0
         }
 
+        if let index = CommandLine.arguments.firstIndex(of: "--proc-detail"),
+           index + 1 < CommandLine.arguments.count,
+           let pid = pid_t(CommandLine.arguments[index + 1]) {
+            let detail = ProcessInspector.inspect(pid: pid)
+            print("pid=\(pid) fields=\(detail.fields.count) path=\(detail.executablePath ?? "-")")
+            for field in detail.fields {
+                print(String(format: "  %-14@ %@", field.label as NSString, field.value as NSString))
+            }
+            return 0
+        }
+
         if CommandLine.arguments.contains("--proc-test") {
             let sampler = ProcessSampler()
             _ = sampler.sample()                    // 第一次只是建立基线
