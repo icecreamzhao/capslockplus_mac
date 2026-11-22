@@ -280,18 +280,29 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
         summaryLabel.stringValue = parts.joined(separator: "  ·  ")
 
-        // 网卡明细：物理口优先，隧道/虚拟/热点有流量才列出来
+        // 网卡明细：只列"在用"的（有 IP 或有流量），名字翻译成硬件名
+        // en2/en3 这类雷雳口号平时没地址也没流量，不该占着这一行
         var networkParts: [String] = []
         let primary = SystemSampler.primaryInterface()?.name
         for item in snapshot.interfaces {
             let active = item.down + item.up > 0
             let isPrimary = item.name == primary
-            guard item.kind == .physical || active || isPrimary else { continue }
-            guard networkParts.count < 4 else { break }
+            guard item.hasAddress || active || isPrimary else { continue }
+            guard networkParts.count < 3 else { break }
             let marker = isPrimary ? "★" : ""
-            networkParts.append("\(item.name)\(marker) ↓\(SystemFormat.compactRate(item.down)) ↑\(SystemFormat.compactRate(item.up))")
+            networkParts.append("\(item.displayName)\(marker) ↓\(SystemFormat.compactRate(item.down)) ↑\(SystemFormat.compactRate(item.up))")
         }
         networkLabel.stringValue = networkParts.isEmpty ? "网络  —" : "网络  " + networkParts.joined(separator: "   ")
+
+        // 悬停看全部网卡：未启用的也列出来，并标出类型
+        var tooltip: [String] = ["网卡（★ = 默认路由）"]
+        for item in snapshot.interfaces {
+            let status = item.hasAddress ? "" : "·未启用"
+            let primaryMark = item.name == primary ? "★ " : ""
+            tooltip.append("\(primaryMark)\(item.displayName)  \(item.kind.label)\(status)"
+                           + "  ↓\(SystemFormat.rate(item.down)) ↑\(SystemFormat.rate(item.up))")
+        }
+        networkLabel.toolTip = tooltip.joined(separator: "\n")
 
         // 重载时保住选中行（按 pid 定位，进程顺序会随 CPU 变化而变）
         // 正在滚动就别刷新表格（数据仍在后台更新，滚动停下后下一次 tick 会补上）

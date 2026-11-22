@@ -28,6 +28,13 @@ struct InterfaceRate {
     let kind: InterfaceKind
     let down: Double
     let up: Double
+    /// 是否配了 IP（en2/en3 这类雷雳口号平时没地址，不该占着明细那一行）
+    let hasAddress: Bool
+
+    /// 给界面用的说明文字：en2 → 雷雳2；查不到就用原名
+    var displayName: String {
+        InterfaceNames.description(for: name).map { "\(name) \($0)" } ?? name
+    }
 }
 
 /// 一次采样得到的系统状态。所有字段都是"能算多少算多少"，取不到的留 nil，界面自己决定显不显示。
@@ -184,14 +191,20 @@ final class SystemSampler {
         defer { freeifaddrs(addresses) }
 
         var counters: [String: (rx: UInt64, tx: UInt64, kind: InterfaceKind)] = [:]
+        var addressed = Set<String>()
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let entry = cursor {
             let interface = entry.pointee
             defer { cursor = interface.ifa_next }
-            guard let address = interface.ifa_addr, address.pointee.sa_family == UInt8(AF_LINK),
-                  let data = interface.ifa_data else { continue }
             let name = String(cString: interface.ifa_name)
-            guard let kind = Self.classify(name) else { continue }
+            guard let address = interface.ifa_addr else { continue }
+            let family = address.pointee.sa_family
+            if family == UInt8(AF_INET) || family == UInt8(AF_INET6) {
+                addressed.insert(name)                 // 有 IP 才算"在用"
+                continue
+            }
+            guard family == UInt8(AF_LINK), let data = interface.ifa_data,
+                  let kind = Self.classify(name) else { continue }
             let stats = data.assumingMemoryBound(to: if_data.self).pointee
             counters[name] = (UInt64(stats.ifi_ibytes), UInt64(stats.ifi_obytes), kind)
         }
@@ -215,7 +228,8 @@ final class SystemSampler {
             guard let last = previousInterfaces[name] else { continue }
             let down = current.rx >= last.rx ? Double(current.rx - last.rx) / elapsed : 0
             let up = current.tx >= last.tx ? Double(current.tx - last.tx) / elapsed : 0
-            interfaces.append(InterfaceRate(name: name, kind: current.kind, down: down, up: up))
+            interfaces.append(InterfaceRate(name: name, kind: current.kind, down: down, up: up,
+                                            hasAddress: addressed.contains(name)))
             switch current.kind {
             case .physical:
                 physicalDown += down
