@@ -268,6 +268,34 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         return list[index]
     }
 
+    /// 自检用：模拟滚动到底再滚回来，返回每帧耗时（毫秒）。
+    /// 用来客观验证"卡不卡"，而不是靠手感描述。
+    func debugScrollBench(frames: Int = 120) -> (frameMs: Double, reloadMs: Double) {
+        let reloadStart = Date()
+        table.reloadData()
+        let reloadMs = Date().timeIntervalSince(reloadStart) * 1000
+
+        guard let scroll = panel.contentView?.subviews.compactMap({ $0 as? NSScrollView }).first else {
+            return (0, reloadMs)
+        }
+        let rowCount = max(table.numberOfRows, 1)
+        let step = max(table.rowHeight, 1)
+        let totalHeight = CGFloat(rowCount) * step
+        let maxOffset = max(totalHeight - scroll.contentView.bounds.height, 0)
+
+        let start = Date()
+        for index in 0..<frames {
+            let fraction = Double(index % 60) / 60.0
+            let y = maxOffset * CGFloat(fraction)
+            scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            table.layoutSubtreeIfNeeded()
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.001))
+        }
+        let elapsed = Date().timeIntervalSince(start) * 1000
+        return (elapsed / Double(frames), reloadMs)
+    }
+
     /// 自检用：模拟拖拽改变窗口尺寸（跑一小段 runloop 让布局生效）
     func debugResize(to size: NSSize) {
         panel.setContentSize(size)

@@ -114,6 +114,8 @@ enum DebugCLI {
             print("after grow=\(controller.debugFrame)")
             controller.debugResize(to: NSSize(width: 420, height: 360))
             print("after shrink=\(controller.debugFrame)")
+            let bench = controller.debugScrollBench()
+            print(String(format: "scroll bench: %.2f ms/frame, reload=%.2f ms", bench.frameMs, bench.reloadMs))
             controller.hide()
             print("after hide=\(controller.debugFrame)")
             return 0
