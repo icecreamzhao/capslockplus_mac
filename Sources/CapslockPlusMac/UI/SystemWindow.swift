@@ -49,6 +49,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.hide() }
         buildContent()
+        // 网络累计收发来自 nettop 的进程计数，注入到详情面板
+        ProcessDetailPanel.shared.extraFieldsProvider = { pid in
+            guard let totals = SystemMonitor.shared.processNetworkTotals(for: pid) else { return [] }
+            return [.init(label: "累计下载", value: SystemFormat.bytes(totals.down)),
+                    .init(label: "累计上传", value: SystemFormat.bytes(totals.up))]
+        }
     }
 
     // MARK: - 界面

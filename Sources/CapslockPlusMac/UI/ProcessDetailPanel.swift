@@ -17,6 +17,10 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     private var updateTimer: Timer?
     private var tick = 0
 
+    /// 外部补字段：网络累计收发来自 nettop 的进程计数，不在 ProcessInspector 里
+    /// （root 代理也拿不到这个数，所以不能写进 inspect）
+    var extraFieldsProvider: ((pid_t) -> [ProcessDetail.Field])?
+
     private override init() {
         super.init()
         panel.title = "进程详情"
@@ -66,6 +70,7 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     // MARK: - 展示
 
     func show(_ detail: ProcessDetail) {
+        let detail = augment(detail)
         self.detail = detail
         panel.title = "进程详情 · \(detail.fields.first?.value ?? "pid \(detail.pid)")"
         render()
@@ -97,13 +102,29 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     private func refreshTick() {
         guard let pid = detail?.pid, panel.isVisible else { return }
         tick += 1
-        apply(ProcessInspector.inspect(pid: pid), allowRebuild: false)
+        apply(augment(ProcessInspector.inspect(pid: pid)), allowRebuild: false)
 
         guard tick % 3 == 0, SystemMonitor.shared.rootActive else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let detail = RootProbe.detailFromAgent(pid: pid) else { return }
-            DispatchQueue.main.async { self?.apply(detail, allowRebuild: true) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.apply(self.augment(detail), allowRebuild: true)
+            }
         }
+    }
+
+    /// 把网络累计收发插到「监听端口」前面（也就是「累计 CPU」后面）
+    private func augment(_ detail: ProcessDetail) -> ProcessDetail {
+        guard let provider = extraFieldsProvider else { return detail }
+        let extra = provider(detail.pid)
+        guard !extra.isEmpty else { return detail }
+        var fields = detail.fields.filter { field in !extra.contains { $0.label == field.label } }
+        let insertAt = fields.firstIndex { $0.label == "监听端口" } ?? fields.count
+        fields.insert(contentsOf: extra, at: insertAt)
+        var result = detail
+        result.fields = fields
+        return result
     }
 
     /// 字段集合相同就只改数值；集合变了（root 补全）才重建
