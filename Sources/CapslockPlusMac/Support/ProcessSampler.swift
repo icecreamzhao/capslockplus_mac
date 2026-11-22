@@ -191,10 +191,12 @@ final class ProcessSampler {
         return name
     }
 
-    /// 某个进程的累计收发（来自 nettop，进程启动至今）
+    /// 某个进程的累计收发（来自 nettop，进程启动至今）。
+    /// nettop 只列有 socket 的进程，所以"采样过但没这个 pid"就是真的 0 字节；
+    /// 还没采到过（刚启动）才返回 nil，避免先显示 0 再跳到真实值。
     func networkTotals(for pid: pid_t) -> (down: UInt64, up: UInt64)? {
-        guard let counters = networkSampler.cumulative[pid] else { return nil }
-        return (counters.rx, counters.tx)
+        if let counters = networkSampler.cumulative[pid] { return (counters.rx, counters.tx) }
+        return networkSampler.hasSampled ? (0, 0) : nil
     }
 
     /// 全路径的 basename 比 proc_name 可读（proc_name 会截断到十几个字符）

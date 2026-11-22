@@ -14,6 +14,8 @@ import Foundation
 final class NetworkSampler {
     /// 每个进程的累计收发（nettop 的 bytes_in / bytes_out，进程启动至今）
     private(set) var cumulative: [pid_t: (rx: UInt64, tx: UInt64)] = [:]
+    /// 是否至少成功采过一次（用来区分"还没采到"和"这个进程没有 socket"）
+    private(set) var hasSampled = false
 
     private var previous: [pid_t: (rx: UInt64, tx: UInt64)] = [:]
     private var previousAt: Date?
@@ -39,6 +41,7 @@ final class NetworkSampler {
             }
         }
         cumulative = counters
+        hasSampled = true
         previous = counters
         previousAt = now
         return rates
