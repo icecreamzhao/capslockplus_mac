@@ -110,6 +110,14 @@ enum DebugCLI {
             print(String(format: "cpu+mem    width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
             view.update(caps: true, cpu: "100%", mem: "35%")
             print(String(format: "caps+100%%  width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
+
+            // 宽度必须与数值位数无关，否则状态栏会随数字跳动
+            var widths: Set<Double> = []
+            for sample in [("8%", "9%"), ("16%", "35%"), ("100%", "100%"), ("0%", "7%")] {
+                view.update(caps: false, cpu: sample.0, mem: sample.1)
+                widths.insert(Double(view.requiredWidth()))
+            }
+            print("width stability: \(widths.count == 1 ? "稳定 ✓" : "抖动 ✗") widths=\(widths.sorted())")
             return 0
         }
 

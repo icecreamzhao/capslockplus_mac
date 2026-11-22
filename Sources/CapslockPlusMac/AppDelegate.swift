@@ -95,7 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         readoutView?.update(caps: locked, cpu: readout?.cpu ?? "", mem: readout?.mem ?? "")
         // 自绘视图的画布宽度要自己告诉状态栏
         if let view = readoutView {
-            statusItem?.length = view.requiredWidth()
+            let width = view.requiredWidth()
+            if let item = statusItem, abs(item.length - width) > 0.5 {
+                item.length = width
+            }
         }
         if !MenuBarProgressIndicator.shared.isActive {
             statusItem?.button?.toolTip = SystemMonitor.shared.readoutToolTip

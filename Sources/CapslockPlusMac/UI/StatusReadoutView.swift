@@ -54,13 +54,15 @@ final class StatusReadoutView: NSView {
             let width = textWidth("CAPS", font: Metrics.capsFont)
             result.append(Column(label: "CAPS", value: "", labelFont: Metrics.capsFont, width: width))
         }
+        // 列宽必须按"最宽可能值"预留：8% → 16% → 100% 位数变化时若跟着算宽度，
+        // 列位置和整个状态栏长度都会变，看起来就是数字在跳。
         if !cpuText.isEmpty {
-            let width = max(textWidth("CPU", font: Metrics.labelFont), textWidth(cpuText, font: Metrics.valueFont))
-            result.append(Column(label: "CPU", value: cpuText, labelFont: Metrics.labelFont, width: width))
+            result.append(Column(label: "CPU", value: cpuText, labelFont: Metrics.labelFont,
+                                 width: columnWidth(label: "CPU", value: cpuText)))
         }
         if !memText.isEmpty {
-            let width = max(textWidth("内存", font: Metrics.labelFont), textWidth(memText, font: Metrics.valueFont))
-            result.append(Column(label: "内存", value: memText, labelFont: Metrics.labelFont, width: width))
+            result.append(Column(label: "内存", value: memText, labelFont: Metrics.labelFont,
+                                 width: columnWidth(label: "内存", value: memText)))
         }
         return result
     }
@@ -73,6 +75,17 @@ final class StatusReadoutView: NSView {
         let content = Metrics.iconSize + Metrics.iconGap + columnsWidth
         return ceil(content + 6)          // 两侧各留 3pt，别贴着图标
     }
+
+    /// 标签与数值取宽，并且至少在 `reserveText` 这个宽度以上（百分比最多三位数）
+    private func columnWidth(label: String, value: String) -> CGFloat {
+        let candidates = [textWidth(label, font: Metrics.labelFont),
+                          textWidth(Self.reserveText, font: Metrics.valueFont),
+                          textWidth(value, font: Metrics.valueFont)]
+        return candidates.max() ?? 0
+    }
+
+    /// 数值预留宽度用的样本（百分比 0–100%）
+    private static let reserveText = "100%"
 
     private func textWidth(_ text: String, font: NSFont) -> CGFloat {
         ceil((text as NSString).size(withAttributes: [.font: font]).width)
