@@ -59,6 +59,31 @@ enum DebugCLI {
         }
 
 
+        if CommandLine.arguments.contains("--smc-report") {
+            print(SMC.report())
+            return 0
+        }
+
+        if CommandLine.arguments.contains("--sys-test") {
+            // 采两次：CPU 与网络速率本质是差值，第一次必然是 0
+            let sampler = SystemSampler()
+            _ = sampler.sample()
+            usleep(600_000)
+            let snap = sampler.sample()
+            print("cpu=\(SystemFormat.percent(snap.cpu)) cores=\(ProcessInfo.processInfo.processorCount)")
+            print("mem=\(SystemFormat.bytes(snap.memUsed))/\(SystemFormat.bytes(snap.memTotal)) (\(SystemFormat.percent(snap.memPercent)))")
+            print(String(format: "load=%.2f %.2f %.2f", snap.load1, snap.load5, snap.load15))
+            print("uptime=\(SystemFormat.duration(snap.uptime))")
+            print("disk=\(SystemFormat.bytes(snap.diskFree)) free / \(SystemFormat.bytes(snap.diskTotal))")
+            print("net=\(SystemFormat.rate(snap.netDown)) down / \(SystemFormat.rate(snap.netUp)) up")
+            print("battery=\(snap.batteryPercent.map(String.init) ?? "nil")% charging=\(snap.batteryCharging) health=\(snap.batteryHealth.map(String.init) ?? "nil")% cycles=\(snap.batteryCycles.map(String.init) ?? "nil")")
+            print(String(format: "temp=%.1f°C fans=%d", snap.cpuTemp ?? -1, snap.fanCount))
+            print("fanRPM=\(snap.fanRPM.map(String.init) ?? "nil")")
+            // 格式化函数的边界（纯函数，不依赖采样）
+            print("fmt: \(SystemFormat.rate(0)) | \(SystemFormat.rate(1536)) | \(SystemFormat.duration(90_061)) | \(SystemFormat.bytes(0)) | \(SystemFormat.percent(1.7))")
+            return 0
+        }
+
         if CommandLine.arguments.contains("--progress-selftest") {
             return runProgressSelfTest()
         }

@@ -29,6 +29,10 @@ final class Config {
     private(set) var panelRenderMode: String = "html"
     /// 长按切输入法成功后，底部 HUD 停留毫秒数；0 = 不弹。
     private(set) var imeToastMs: Int = 700
+    /// 菜单栏是否显示「CPU% · 内存%」紧凑读数
+    private(set) var systemReadout = true
+    /// 系统采样间隔（毫秒）
+    private(set) var systemSampleMs: Int = 2000
     let fileURL: URL
 
     static let defaultPairs: [(String, String)] = {
@@ -185,6 +189,10 @@ final class Config {
         let toastMs = (root["imeToastMs"] as? NSNumber)?.intValue ?? 700
         imeToastMs = min(max(toastMs, 0), 3000)
 
+        systemReadout = (root["systemReadout"] as? Bool) ?? true
+        let sample = (root["systemSampleMs"] as? NSNumber)?.intValue ?? 2000
+        systemSampleMs = min(max(sample, 500), 10_000)
+
         let tapRaw = (root["tap"] as? String) ?? "toggleCapsLock"
         let tapAction: Action
         if let parsed = Action.parse(tapRaw) {
@@ -237,7 +245,7 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs)")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs) sysReadout=\(systemReadout ? 1 : 0)/\(systemSampleMs)ms")
         return true
     }
 

@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var inputSourceItem: NSMenuItem?
     private var capsLockItem: NSMenuItem?
     private var windowBindingsMenu: NSMenu?
+    private var systemItems: [NSMenuItem] = []
     private var secureInputTimer: Timer?
     private var secureInputOn = false
 
@@ -45,6 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        if Config.shared.systemReadout {
+            SystemMonitor.shared.onUpdate = { [weak self] _ in
+                self?.refreshStatusTitle()
+                self?.refreshSystemMenu()
+            }
+            SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
+        }
+
         let systemEvents = SystemEvents.shared
         systemEvents.onWake = { [weak self] in
             self?.recover(reason: "wake")
@@ -58,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         secureInputTimer?.invalidate()
         secureInputTimer = nil
+        SystemMonitor.shared.stop()
         SystemEvents.shared.stop()
         InputSource.stopObserving()
         KeyRemap.remove()
@@ -71,12 +81,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func refreshCapsIndicator() {
-        // 转换进度占用着状态栏图标，这时别用 CAPS 指示把它盖掉
-        guard !MenuBarProgressIndicator.shared.isActive else { return }
+        capsLockItem?.title = "大写锁定：\(HIDCapsLock.shared.isLocked ? "开" : "关")"
+        refreshStatusTitle()
+    }
+
+    /// 状态栏标题只有一处组装：CAPS 指示 + 系统读数。
+    /// 之前 CAPS 直接写 button.title，加上读数后两边会互相覆盖，所以统一走这里。
+    func refreshStatusTitle() {
         let locked = HIDCapsLock.shared.isLocked
-        statusItem?.button?.title = locked ? " CAPS" : ""
-        statusItem?.button?.imagePosition = locked ? .imageLeft : .imageOnly
-        capsLockItem?.title = "大写锁定：\(locked ? "开" : "关")"
+        let readout = Config.shared.systemReadout ? SystemMonitor.shared.readoutText : ""
+        let parts = [locked ? "CAPS" : "", readout].filter { !$0.isEmpty }
+        let title = parts.joined(separator: " · ")
+        statusItem?.button?.title = title.isEmpty ? "" : " " + title
+        statusItem?.button?.imagePosition = title.isEmpty ? .imageOnly : .imageLeft
+        if !MenuBarProgressIndicator.shared.isActive {
+            statusItem?.button?.toolTip = SystemMonitor.shared.readoutToolTip
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -89,7 +109,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inputSourceItem?.title = "输入法：\(InputSource.currentName() ?? "未知")"
         capsLockItem?.title = "大写锁定：\(HIDCapsLock.shared.isLocked ? "开" : "关")"
         refreshWindowBindingsMenu()
+        refreshSystemMenu()
         refreshCapsIndicator()
+    }
+
+    /// 系统那一节：条目数量固定（取不到值的隐藏），值来自最近一次采样
+    private func refreshSystemMenu() {
+        let lines = SystemMonitor.shared.menuLines()
+        for (index, item) in systemItems.enumerated() {
+            if index < lines.count {
+                item.title = "\(lines[index].title)：\(lines[index].value)"
+                item.isHidden = false
+            } else {
+                item.isHidden = true
+            }
+        }
     }
 
     private func installSignalHandlers() {
@@ -163,6 +197,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         capsLockItem.isEnabled = false
         menu.addItem(capsLockItem)
         self.capsLockItem = capsLockItem
+
+        let system = NSMenuItem(title: "系统", action: nil, keyEquivalent: "")
+        let systemMenu = NSMenu(title: "系统")
+        for _ in 0..<9 {
+            let line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            line.isEnabled = false
+            systemMenu.addItem(line)
+            systemItems.append(line)
+        }
+        system.submenu = systemMenu
+        menu.addItem(system)
 
         let tools = NSMenuItem(title: "小工具", action: nil, keyEquivalent: "")
         let toolsMenu = NSMenu(title: "小工具")
