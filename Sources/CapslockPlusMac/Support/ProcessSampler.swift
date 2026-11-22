@@ -19,6 +19,11 @@ struct ProcessSample {
 ///      否则 WindowServer、kernel_task 这些真正吃 CPU 的会凭空消失。
 ///   3. `pti_total_user` 与 rusage 同单位（都是 tick），不是有些人以为的纳秒。
 final class ProcessSampler {
+    /// 上一次采样里"读不到指标"的进程数（root 拥有的那些）。
+    /// 公开出来是因为界面上要如实说明"共 N 个进程，其中 M 个无权限读取"，
+    /// 而不是假装系统里只有 N-M 个进程。
+    private(set) var unreadableCount = 0
+
     private var previous: [pid_t: UInt64] = [:]     // pid -> 累计 CPU tick
     private var previousAt: UInt64 = 0
     private var timebase = mach_timebase_info_data_t()
@@ -43,12 +48,16 @@ final class ProcessSampler {
         let elapsedNs = previousAt == 0 ? 0 : Double(toNanoseconds(now &- previousAt))
         var nextTicks: [pid_t: UInt64] = [:]
         var results: [ProcessSample] = []
+        var unreadable = 0
 
         for index in 0..<count {
             let pid = pids[index]
             guard pid > 0 else { continue }
 
-            guard let stats = stats(for: pid) else { continue }
+            guard let stats = stats(for: pid) else {
+                unreadable += 1
+                continue
+            }
             nextTicks[pid] = stats.cpuTicks
 
             var cpu = 0.0
@@ -61,6 +70,7 @@ final class ProcessSampler {
 
         previous = nextTicks
         previousAt = now
+        unreadableCount = unreadable
         return results.sorted { $0.cpu > $1.cpu }
     }
 

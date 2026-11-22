@@ -199,8 +199,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
 
         let count = SystemMonitor.shared.processes.count
+        let hidden = SystemMonitor.shared.unreadableProcessCount
         let age = max(Int(Date().timeIntervalSince(snapshot.sampledAt).rounded()), 0)
-        footerLabel.stringValue = "共 \(count) 个进程 · 点表头排序 · 每 \(Config.shared.systemSampleMs / 1000) 秒刷新 · \(age) 秒前"
+        var footer = "共 \(count) 个进程"
+        if hidden > 0 { footer += "（\(hidden) 个系统进程无权限读取，需 root）" }
+        footer += " · 点表头排序 · 每 \(Config.shared.systemSampleMs / 1000) 秒刷新 · \(age) 秒前"
+        footerLabel.stringValue = footer
     }
 
     /// 按当前排序键输出

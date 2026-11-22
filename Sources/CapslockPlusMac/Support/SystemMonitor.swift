@@ -13,6 +13,8 @@ final class SystemMonitor {
     private let processSampler = ProcessSampler()
     /// 最近一次进程列表（按 CPU 降序）
     private(set) var processes: [ProcessSample] = []
+    /// 读不到指标的进程数（root 拥有的）
+    var unreadableProcessCount: Int { processSampler.unreadableCount }
     private let queue = DispatchQueue(label: "capslock.sysmon", qos: .utility)
     private var timer: Timer?
 
