@@ -13,6 +13,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var cpuLabel = NSTextField(labelWithString: "CPU")
     private var memLabel = NSTextField(labelWithString: "内存")
     private var summaryLabel = NSTextField(labelWithString: "")
+    private var networkLabel = NSTextField(labelWithString: "")
     private var footerLabel = NSTextField(labelWithString: "")
     private var table = NSTableView()
     private var scrollView = NSScrollView()
@@ -83,7 +84,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         summaryLabel.autoresizingMask = [.width, .minYMargin]
         content.addSubview(summaryLabel)
 
-        let separator = NSBox(frame: NSRect(x: padding, y: height - 100, width: width, height: 1))
+        networkLabel.font = .monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
+        networkLabel.textColor = .secondaryLabelColor
+        networkLabel.lineBreakMode = .byTruncatingTail
+        networkLabel.frame = NSRect(x: padding, y: height - 104, width: width, height: 14)
+        networkLabel.autoresizingMask = [.width, .minYMargin]
+        content.addSubview(networkLabel)
+
+        let separator = NSBox(frame: NSRect(x: padding, y: height - 116, width: width, height: 1))
         separator.boxType = .separator
         separator.autoresizingMask = [.width, .minYMargin]
         content.addSubview(separator)
@@ -122,7 +130,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         addColumn("上传", key: "up", width: 58, alignment: .right)
         addColumn("PID", key: "pid", width: 54, alignment: .right)
 
-        scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 168))
+        scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 184))
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -256,6 +264,19 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             parts.append("电池 \(percent)%\(snapshot.batteryCharging ? " 充电中" : "")")
         }
         summaryLabel.stringValue = parts.joined(separator: "  ·  ")
+
+        // 网卡明细：物理口优先，隧道/虚拟/热点有流量才列出来
+        var networkParts: [String] = []
+        let primary = SystemSampler.primaryInterface()?.name
+        for item in snapshot.interfaces {
+            let active = item.down + item.up > 0
+            let isPrimary = item.name == primary
+            guard item.kind == .physical || active || isPrimary else { continue }
+            guard networkParts.count < 4 else { break }
+            let marker = isPrimary ? "★" : ""
+            networkParts.append("\(item.name)\(marker) ↓\(SystemFormat.compactRate(item.down)) ↑\(SystemFormat.compactRate(item.up))")
+        }
+        networkLabel.stringValue = networkParts.isEmpty ? "网络  —" : "网络  " + networkParts.joined(separator: "   ")
 
         // 重载时保住选中行（按 pid 定位，进程顺序会随 CPU 变化而变）
         // 正在滚动就别刷新表格（数据仍在后台更新，滚动停下后下一次 tick 会补上）

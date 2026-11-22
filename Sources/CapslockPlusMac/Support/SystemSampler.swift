@@ -1,6 +1,34 @@
 import Foundation
 import Darwin
 import IOKit.ps
+import SystemConfiguration
+
+/// 网卡分类：菜单栏总量只统计 physical，隧道单独算，避免同一份字节被算两遍
+enum InterfaceKind: String {
+    case physical        // en*
+    case tunnel          // utun* / ipsec*
+    case virtual         // bridge* / vmnet* / anpi* / vmenet*
+    case hotspot         // ap*
+    case wirelessDirect  // awdl* / llw* / nan*
+
+    var label: String {
+        switch self {
+        case .physical: return "物理"
+        case .tunnel: return "隧道"
+        case .virtual: return "虚拟"
+        case .hotspot: return "热点"
+        case .wirelessDirect: return "直连"
+        }
+    }
+}
+
+/// 单个网卡的实时速率（字节/秒）
+struct InterfaceRate {
+    let name: String
+    let kind: InterfaceKind
+    let down: Double
+    let up: Double
+}
 
 /// 一次采样得到的系统状态。所有字段都是"能算多少算多少"，取不到的留 nil，界面自己决定显不显示。
 struct SystemSnapshot {
@@ -13,8 +41,12 @@ struct SystemSnapshot {
     var uptime: TimeInterval = 0
     var diskFree: UInt64 = 0
     var diskTotal: UInt64 = 0
-    var netDown: Double = 0             // 字节/秒
+    var netDown: Double = 0             // 字节/秒，**只算物理网卡**
     var netUp: Double = 0
+    var tunnelDown: Double = 0          // 隧道单独统计：开 VPN 时与物理口是同一份字节，混在一起会翻倍
+    var tunnelUp: Double = 0
+    var interfaces: [InterfaceRate] = []   // 各网卡明细（按速率降序）
+    var hotspotActive = false           // 是否正走热点（ap* 有流量，或默认路由就在热点上）
     var batteryPercent: Int?
     var batteryCharging = false
     var batteryHealth: Int?             // %
@@ -35,7 +67,8 @@ struct SystemSnapshot {
 /// 这是物理限制，不是 bug：第一次返回 0，第二次起才是真实值。
 final class SystemSampler {
     private var previousCPU: (user: UInt32, system: UInt32, nice: UInt32, idle: UInt32)?
-    private var previousNet: (down: UInt64, up: UInt64, at: Double)?
+    private var previousInterfaces: [String: (rx: UInt64, tx: UInt64)] = [:]
+    private var previousInterfacesAt: Date?
 
     func sample() -> SystemSnapshot {
         var snapshot = SystemSnapshot()
@@ -49,8 +82,12 @@ final class SystemSampler {
         snapshot.diskFree = disk.free
         snapshot.diskTotal = disk.total
         let network = networkRates()
-        snapshot.netDown = network.down
-        snapshot.netUp = network.up
+        snapshot.interfaces = network.interfaces
+        snapshot.netDown = network.physicalDown
+        snapshot.netUp = network.physicalUp
+        snapshot.tunnelDown = network.tunnelDown
+        snapshot.tunnelUp = network.tunnelUp
+        snapshot.hotspotActive = network.hotspotActive
         let battery = batteryInfo()
         snapshot.batteryPercent = battery.percent
         snapshot.batteryCharging = battery.charging
@@ -133,40 +170,94 @@ final class SystemSampler {
 
     // MARK: - 网络
 
-    private func networkRates() -> (down: Double, up: Double) {
+    /// 逐网卡算速率，并把"物理口"和"隧道"分开汇总。
+    ///
+    /// 为什么必须分：开 VPN 时同一份字节会同时记在 utun3 和 en0 上，
+    /// 全加起来就是双倍；awdl0/llw0（AirDrop、接力）、bridge0（虚拟机）同理。
+    /// 菜单栏的总量只取物理口，隧道单独给一个数。
+    private func networkRates() -> (interfaces: [InterfaceRate], physicalDown: Double, physicalUp: Double,
+                                    tunnelDown: Double, tunnelUp: Double, hotspotActive: Bool) {
         var addresses: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addresses) == 0, let first = addresses else { return (0, 0) }
+        guard getifaddrs(&addresses) == 0, let first = addresses else {
+            return ([], 0, 0, 0, 0, false)
+        }
         defer { freeifaddrs(addresses) }
 
-        var received: UInt64 = 0
-        var sent: UInt64 = 0
+        var counters: [String: (rx: UInt64, tx: UInt64, kind: InterfaceKind)] = [:]
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let entry = cursor {
             let interface = entry.pointee
-            if let address = interface.ifa_addr, address.pointee.sa_family == UInt8(AF_LINK),
-               let data = interface.ifa_data {
-                let name = String(cString: interface.ifa_name)
-                if !name.hasPrefix("lo") && !name.hasPrefix("gif") && !name.hasPrefix("stf") {
-                    let stats = data.assumingMemoryBound(to: if_data.self).pointee
-                    received &+= UInt64(stats.ifi_ibytes)
-                    sent &+= UInt64(stats.ifi_obytes)
-                }
-            }
-            cursor = interface.ifa_next
+            defer { cursor = interface.ifa_next }
+            guard let address = interface.ifa_addr, address.pointee.sa_family == UInt8(AF_LINK),
+                  let data = interface.ifa_data else { continue }
+            let name = String(cString: interface.ifa_name)
+            guard let kind = Self.classify(name) else { continue }
+            let stats = data.assumingMemoryBound(to: if_data.self).pointee
+            counters[name] = (UInt64(stats.ifi_ibytes), UInt64(stats.ifi_obytes), kind)
         }
 
-        let now = Date().timeIntervalSince1970
-        defer { previousNet = (received, sent, now) }
-        guard let previous = previousNet, now > previous.at else { return (0, 0) }
-        let elapsed = now - previous.at
-        guard elapsed > 0 else { return (0, 0) }
-        let downBytes = received >= previous.down ? received - previous.down : 0
-        let upBytes = sent >= previous.up ? sent - previous.up : 0
-        return (Double(downBytes) / elapsed, Double(upBytes) / elapsed)
+        let now = Date()
+        defer {
+            previousInterfaces = counters.mapValues { ($0.rx, $0.tx) }
+            previousInterfacesAt = now
+        }
+        guard let previousAt = previousInterfacesAt else {
+            return ([], 0, 0, 0, 0, false)      // 第一次没有基线
+        }
+        let elapsed = now.timeIntervalSince(previousAt)
+        guard elapsed > 0.2 else { return ([], 0, 0, 0, 0, false) }
+
+        var interfaces: [InterfaceRate] = []
+        var physicalDown = 0.0, physicalUp = 0.0, tunnelDown = 0.0, tunnelUp = 0.0
+        var hotspotDown = 0.0, hotspotUp = 0.0
+
+        for (name, current) in counters {
+            guard let last = previousInterfaces[name] else { continue }
+            let down = current.rx >= last.rx ? Double(current.rx - last.rx) / elapsed : 0
+            let up = current.tx >= last.tx ? Double(current.tx - last.tx) / elapsed : 0
+            interfaces.append(InterfaceRate(name: name, kind: current.kind, down: down, up: up))
+            switch current.kind {
+            case .physical:
+                physicalDown += down
+                physicalUp += up
+            case .tunnel:
+                tunnelDown += down
+                tunnelUp += up
+            case .hotspot:
+                hotspotDown += down
+                hotspotUp += up
+            case .virtual, .wirelessDirect:
+                break
+            }
+        }
+
+        // 热点判定：热点网卡有明显流量，或者默认路由本身就在热点上
+        let hotspotActive = hotspotDown + hotspotUp > 4096 || Self.primaryInterface()?.kind == .hotspot
+
+        return (interfaces.sorted { $0.down + $0.up > $1.down + $1.up },
+                physicalDown, physicalUp, tunnelDown, tunnelUp, hotspotActive)
     }
 
-    // MARK: - 电池
+    /// 网卡分类：只有 en* 算"物理"，其余各自归类（未知前缀不参与统计）
+    private static func classify(_ name: String) -> InterfaceKind? {
+        if name.hasPrefix("en") { return .physical }
+        if name.hasPrefix("utun") || name.hasPrefix("ipsec") { return .tunnel }
+        if name.hasPrefix("bridge") || name.hasPrefix("vmnet")
+            || name.hasPrefix("vmenet") || name.hasPrefix("anpi") { return .virtual }
+        if name.hasPrefix("ap") { return .hotspot }
+        if name.hasPrefix("awdl") || name.hasPrefix("llw") || name.hasPrefix("nan") { return .wirelessDirect }
+        return nil                              // lo0 / gif0 / stf0 等直接忽略
+    }
 
+    /// 默认路由所在的网卡（SystemConfiguration，不需要 fork 命令）
+    static func primaryInterface() -> (name: String, kind: InterfaceKind)? {
+        guard let store = SCDynamicStoreCreate(nil, "CapslockPlus" as CFString, nil, nil),
+              let value = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString)
+                as? [String: Any],
+              let name = value["PrimaryInterface"] as? String,
+              let kind = classify(name) else { return nil }
+        return (name, kind)
+    }
     private func batteryInfo() -> (percent: Int?, charging: Bool, health: Int?, cycles: Int?) {
         var percent: Int?
         var charging = false

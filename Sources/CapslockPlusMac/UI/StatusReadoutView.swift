@@ -14,6 +14,7 @@ final class StatusReadoutView: NSView {
         static let labelFont = NSFont.systemFont(ofSize: 7.5, weight: .medium)
         static let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular)
         static let capsFont = NSFont.systemFont(ofSize: 7.5, weight: .bold)
+        static let hotspotWidth: CGFloat = 11
         static let labelHeight: CGFloat = 9
         static let valueHeight: CGFloat = 12
     }
@@ -27,20 +28,23 @@ final class StatusReadoutView: NSView {
     private var memText = ""
     private var downText = ""
     private var upText = ""
+    private var hotspot = false
 
     override var isFlipped: Bool { true }
 
     /// 点击交给 NSStatusBarButton 处理，否则菜单打不开
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func update(caps: Bool, cpu: String, mem: String, down: String = "", up: String = "") {
+    func update(caps: Bool, cpu: String, mem: String, down: String = "", up: String = "",
+                hotspot: Bool = false) {
         guard caps != capsOn || cpu != cpuText || mem != memText
-                || down != downText || up != upText else { return }
+                || down != downText || up != upText || hotspot != self.hotspot else { return }
         capsOn = caps
         cpuText = cpu
         memText = mem
         downText = down
         upText = up
+        self.hotspot = hotspot
         needsDisplay = true
     }
 
@@ -85,7 +89,8 @@ final class StatusReadoutView: NSView {
         let list = columns()
         let columnsWidth = list.reduce(CGFloat(0)) { $0 + $1.width }
             + CGFloat(max(list.count - 1, 0)) * Metrics.columnGap
-        let content = Metrics.iconSize + Metrics.iconGap + columnsWidth
+        let hotspotWidth = hotspot ? Metrics.hotspotWidth : 0
+        let content = Metrics.iconSize + Metrics.iconGap + hotspotWidth + columnsWidth
         return ceil(content + 6)          // 两侧各留 3pt，别贴着图标
     }
 
@@ -112,6 +117,13 @@ final class StatusReadoutView: NSView {
         let top = max((height - blockHeight) / 2, 0)
 
         var x: CGFloat = 3
+        if hotspot, let wifi = NSImage(systemSymbolName: "wifi", accessibilityDescription: "热点") {
+            let size: CGFloat = 9
+            let rect = NSRect(x: x, y: (height - size) / 2, width: size, height: size)
+            let orange = wifi.withSymbolConfiguration(.init(paletteColors: [.systemOrange]))
+            orange?.draw(in: rect)
+            x += Metrics.hotspotWidth
+        }
         if let glyph {
             let iconRect = NSRect(x: x, y: (height - Metrics.iconSize) / 2,
                                   width: Metrics.iconSize, height: Metrics.iconSize)

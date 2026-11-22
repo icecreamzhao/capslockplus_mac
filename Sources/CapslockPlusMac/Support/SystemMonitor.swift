@@ -92,12 +92,13 @@ final class SystemMonitor {
     // MARK: - 菜单栏紧凑读数
 
     /// 菜单栏两行读数用的四组数：CPU%、内存%、下行、上行。关闭或还没采到数据时返回 nil
-    var readoutParts: (cpu: String, mem: String, down: String, up: String)? {
+    var readoutParts: (cpu: String, mem: String, down: String, up: String, hotspot: Bool)? {
         guard isRunning, !snapshot.sampledAt.timeIntervalSince1970.isZero else { return nil }
         return (SystemFormat.percent(snapshot.cpu),
                 SystemFormat.percent(snapshot.memPercent),
                 SystemFormat.compactRate(snapshot.netDown),
-                SystemFormat.compactRate(snapshot.netUp))
+                SystemFormat.compactRate(snapshot.netUp),
+                snapshot.hotspotActive)
     }
 
     /// 悬停提示：比标题多给一点上下文
@@ -107,6 +108,9 @@ final class SystemMonitor {
             + " · 内存 \(SystemFormat.percent(snapshot.memPercent))"
             + " · 下行 \(SystemFormat.rate(snapshot.netDown))"
             + " · 上行 \(SystemFormat.rate(snapshot.netUp))"
+            + (snapshot.tunnelDown + snapshot.tunnelUp > 0
+               ? " · 隧道 ↓\(SystemFormat.rate(snapshot.tunnelDown)) ↑\(SystemFormat.rate(snapshot.tunnelUp))" : "")
+            + (snapshot.hotspotActive ? " · 热点" : "")
             + " · 负载 \(String(format: "%.2f", snapshot.load1))"
     }
 
