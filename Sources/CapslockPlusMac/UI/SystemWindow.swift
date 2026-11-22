@@ -365,6 +365,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             + " visible=\(panel.isVisible ? 1 : 0) rows=\(table.numberOfRows)"
             + " tableW=\(Int(scrollView.frame.width))"
             + " cols=[" + table.tableColumns.map { "\($0.identifier.rawValue):\(Int($0.width))" }.joined(separator: " ") + "]"
+            + " tableFrameW=\(Int(table.frame.width)) contentW=\(Int(scrollView.contentSize.width))"
+            + " spacing=\(table.intercellSpacing.width) sumW=\(Int(table.tableColumns.reduce(0) { $0 + $1.width }))"
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
     }
 
