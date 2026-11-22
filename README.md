@@ -102,19 +102,31 @@ open /Applications/CapslockPlusMac.app
 
 ```
 上半屏   CPU / 内存 进度条，一行摘要：负载 · 温度 · 风扇 · 电池
-下半屏   进程表：进程名 · CPU · 内存 · PID
-         点表头按任意列排序（默认 CPU 降序），>10% 标橙、>50% 标红
+下半屏   进程表：进程名 · CPU · 内存 · 端口 · PID
+         点表头按任意列排序（默认 CPU 降序），CPU >10% 标橙、>50% 标红
+         「端口」列显示该进程正在监听的 TCP 端口（蓝色，多于两个显示 +N，悬停看全部）
          选中行在多轮刷新之间保持（按 PID 定位，不随排序跳动）
 ```
 
-数据来自系统框架（mach / sysctl / statfs / getifaddrs / IOPowerSources / IOKit SMC + libproc），
-不读 Stats 的数据，也不依赖它。Esc 或关闭按钮退出，窗口位置会记住。
+采样全部走系统框架，不读 Stats 的数据，也不依赖它：
 
-**已知限制**：root 拥有的进程（WindowServer、系统守护进程等）读不到 CPU/内存 ——
-`proc_pid_rusage` 与 `PROC_PIDTASKINFO` 对它们都返回 EPERM，`sysctl KERN_PROC_ALL` 里
-RSS 字段在公开 SDK 里是占位符、CPU 字段恒为 0。活动监视器能显示是因为它带
-`com.apple.system-task-ports` 这类 entitlement，本项目没有。窗口底部会如实标出
-「N 个系统进程无权限读取」，不做隐瞒。
+```
+CPU 总占用   mach host_statistics(HOST_CPU_LOAD_INFO)
+内存        mach host_statistics64(HOST_VM_INFO64)
+进程 CPU    libproc proc_pid_rusage(RUSAGE_INFO_V4)，时间单位是 mach tick（需按 timebase 换算）
+进程内存    rusage ri_phys_footprint（与活动监视器"内存"列同口径）
+进程列表    libproc proc_listpids(PROC_ALL_PIDS)
+监听端口    libproc PROC_PIDLISTFDS + PROC_PIDFDSOCKETINFO（只取 TCP、state=LISTEN，IPv4/IPv6 去重）
+温度/风扇   IOKit AppleSMC（只读）
+电池        IOKit.ps + AppleSmartBattery
+```
+
+刷新节奏：进程与系统指标每 2 秒一次（全量约 17ms，在后台队列）；端口几乎不变，降频到每 8 秒扫一次，其余采样用缓存。
+
+**已知限制**：root 拥有的进程（WindowServer、系统守护进程等）读不到 CPU 与内存 ——
+`proc_pid_rusage` / `PROC_PIDTASKINFO` 对它们返回 EPERM，`sysctl KERN_PROC_ALL` 在公开 SDK 里
+RSS 字段是占位符、CPU 字段恒为 0。这类行会保留在表里（名字和端口照样能读），CPU/内存显示 `—`，
+窗口底部注明有多少个。活动监视器能显示是因为它带 `com.apple.system-task-ports` 这类 entitlement。
 
 - 关掉菜单栏读数：`keymap.json` 顶层加 `"systemReadout": false`
 - 改刷新间隔：`"systemSampleMs": 2000`（毫秒，夹在 500–10000；越小越费电）
