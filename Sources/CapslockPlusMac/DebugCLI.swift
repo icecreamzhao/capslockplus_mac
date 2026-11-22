@@ -222,8 +222,9 @@ enum DebugCLI {
                   + "  tunnel=\(SystemFormat.rate(snap.tunnelDown))/\(SystemFormat.rate(snap.tunnelUp))"
                   + "  hotspot=\(snap.hotspotActive ? 1 : 0) primary=\(SystemSampler.primaryInterface()?.name ?? "-")")
             for item in snap.interfaces.prefix(8) {
-                print(String(format: "  iface %-10@ %-8@ ↓%-8@ ↑%-8@",
-                             item.name as NSString, item.kind.label as NSString,
+                print(String(format: "  iface %-18@ %-6@ %-8@ ↓%-8@ ↑%-8@",
+                             item.displayName as NSString, item.kind.label as NSString,
+                             (item.hasAddress ? "有地址" : "未启用") as NSString,
                              SystemFormat.compactRate(item.down) as NSString,
                              SystemFormat.compactRate(item.up) as NSString))
             }
