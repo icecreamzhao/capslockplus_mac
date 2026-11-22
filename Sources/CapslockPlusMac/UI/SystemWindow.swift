@@ -17,6 +17,9 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var table = NSTableView()
     private var scrollView = NSScrollView()
     private var observer: NSObjectProtocol?
+    private var scrollObserver: NSObjectProtocol?
+    /// 最后一次滚动的时间；滚动中不重载表格，避免用户手指还在滑的时候被整表刷新打断
+    private var lastScrollAt = Date.distantPast
 
     /// 当前排序；默认按 CPU 降序（和系统活动监视器一致）
     private var sortKey = "cpu"
@@ -108,6 +111,12 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
         scrollView.autoresizingMask = [.width, .height]      // 表格区吸收剩下的空间
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView,
+            queue: .main) { [weak self] _ in
+            self?.lastScrollAt = Date()
+        }
         content.addSubview(scrollView)
 
         footerLabel.font = .systemFont(ofSize: 10)
@@ -213,6 +222,9 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         summaryLabel.stringValue = parts.joined(separator: "  ·  ")
 
         // 重载时保住选中行（按 pid 定位，进程顺序会随 CPU 变化而变）
+        // 正在滚动就别刷新表格（数据仍在后台更新，滚动停下后下一次 tick 会补上）
+        guard Date().timeIntervalSince(lastScrollAt) > 0.35 else { return }
+
         let selectedPID = selectedSample()?.pid
         displayRowsDirty = true
         _ = rows()                       // 先重建缓存，reloadData 期间才不会再排序
