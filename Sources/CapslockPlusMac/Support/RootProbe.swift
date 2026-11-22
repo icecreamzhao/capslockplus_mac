@@ -83,7 +83,7 @@ enum RootProbe {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             process.arguments = ["-e", script]
 
-            var errorPipe = Pipe()
+            let errorPipe = Pipe()
             process.standardError = errorPipe
             process.standardOutput = Pipe()
 
