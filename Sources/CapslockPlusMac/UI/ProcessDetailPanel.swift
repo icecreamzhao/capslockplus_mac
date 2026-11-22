@@ -120,7 +120,8 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
         let extra = provider(detail.pid)
         guard !extra.isEmpty else { return detail }
         var fields = detail.fields.filter { field in !extra.contains { $0.label == field.label } }
-        let insertAt = fields.firstIndex { $0.label == "监听端口" } ?? fields.count
+        // 固定跟在「累计 CPU」后面，不管这个进程有没有监听端口，顺序都一致
+        let insertAt = fields.firstIndex { $0.label == "累计 CPU" }.map { $0 + 1 } ?? fields.count
         fields.insert(contentsOf: extra, at: insertAt)
         var result = detail
         result.fields = fields
