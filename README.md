@@ -96,28 +96,28 @@ open /Applications/CapslockPlusMac.app
 （实测同一段满屏噪点素材：1,279,777 → 1,233,365 字节，仅 -3.6%）。命令行等价用法：
 `./scripts/make-gif.sh in.mov out.gif --width 800 --fps 12`。
 
-### 6. 系统监控
+### 6. 活动监视器
 
-菜单栏图标旁显示紧凑读数 **`12% · 68%`**（CPU 占用 · 内存占用），鼠标悬停还能看到负载。
-
-要细节就点菜单里的 **系统信息…**，弹一个独立面板（可一直开着，位置会记住）：
+菜单栏图标旁显示紧凑读数 **`12% · 68%`**（CPU · 内存），点菜单里的 **活动监视器…** 打开窗口：
 
 ```
-CPU / 内存   两条进度条 + 百分比
-负载         1 / 5 / 15 分钟
-运行时间     自上次开机
-磁盘         剩余 / 总量（根卷）
-网络         ↓ 下行速率 · ↑ 上行速率（两次采样差值）
-电池         电量 · 是否充电 · 健康度 · 循环次数
-温度         CPU 附近最高温度（SMC）
-风扇         转速；低温停转时显示「停转」
+上半屏   CPU / 内存 进度条，一行摘要：负载 · 温度 · 风扇 · 电池
+下半屏   进程表：进程名 · CPU · 内存 · PID
+         点表头按任意列排序（默认 CPU 降序），>10% 标橙、>50% 标红
+         选中行在多轮刷新之间保持（按 PID 定位，不随排序跳动）
 ```
 
-全部来自系统框架（mach / statfs / getifaddrs / IOPowerSources / IOKit SMC），不读 Stats 的数据、也不依赖它。
-Esc 或关闭按钮退出；关掉菜单栏读数不会影响这个窗口。
+数据来自系统框架（mach / sysctl / statfs / getifaddrs / IOPowerSources / IOKit SMC + libproc），
+不读 Stats 的数据，也不依赖它。Esc 或关闭按钮退出，窗口位置会记住。
+
+**已知限制**：root 拥有的进程（WindowServer、系统守护进程等）读不到 CPU/内存 ——
+`proc_pid_rusage` 与 `PROC_PIDTASKINFO` 对它们都返回 EPERM，`sysctl KERN_PROC_ALL` 里
+RSS 字段在公开 SDK 里是占位符、CPU 字段恒为 0。活动监视器能显示是因为它带
+`com.apple.system-task-ports` 这类 entitlement，本项目没有。窗口底部会如实标出
+「N 个系统进程无权限读取」，不做隐瞒。
 
 - 关掉菜单栏读数：`keymap.json` 顶层加 `"systemReadout": false`
-- 改采样间隔：`"systemSampleMs": 2000`（毫秒，夹在 500–10000；越小越费电）
+- 改刷新间隔：`"systemSampleMs": 2000`（毫秒，夹在 500–10000；越小越费电）
 
 ## 注意事项
 
