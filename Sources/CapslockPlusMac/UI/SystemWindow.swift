@@ -129,7 +129,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         if observer == nil {
             observer = NotificationCenter.default.addObserver(
-                forName: .systemSnapshotUpdated, object: nil, queue: .main) { [weak self] note in
+                forName: SystemMonitor.didUpdate, object: nil, queue: .main) { [weak self] note in
                 guard let snapshot = note.object as? SystemSnapshot else { return }
                 self?.refresh(with: snapshot)
             }
