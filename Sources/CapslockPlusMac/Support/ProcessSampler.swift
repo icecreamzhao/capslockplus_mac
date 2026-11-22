@@ -132,11 +132,17 @@ final class ProcessSampler {
 
         var ports = Set<UInt16>()
         let infoSize = Int32(MemoryLayout<socket_fdinfo>.size)
+        if ProcessInfo.processInfo.environment["CW_PORT_DEBUG"] == "1" {
+            FileHandle.standardError.write("[dbg] pid=\(pid) fds=\(count) bytes=\(bytes)\n".data(using: .utf8)!)
+        }
         for index in 0..<count {
             let fd = fds[index]
             guard fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) else { continue }
             var info = socket_fdinfo()
             guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, infoSize) == infoSize else { continue }
+            if ProcessInfo.processInfo.environment["CW_PORT_DEBUG"] == "1" {
+                FileHandle.standardError.write("[dbg]   fd=\(fd.proc_fd) r=ok kind=\(info.psi.soi_kind) state=\(info.psi.soi_proto.pri_tcp.tcpsi_state)\n".data(using: .utf8)!)
+            }
             guard info.psi.soi_kind == SOCKINFO_TCP else { continue }
             guard info.psi.soi_proto.pri_tcp.tcpsi_state == TSI_S_LISTEN else { continue }
             let raw = UInt16(truncatingIfNeeded: info.psi.soi_proto.pri_tcp.tcpsi_ini.insi_lport)
