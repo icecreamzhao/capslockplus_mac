@@ -191,6 +191,12 @@ final class ProcessSampler {
         return name
     }
 
+    /// 某个进程的累计收发（来自 nettop，进程启动至今）
+    func networkTotals(for pid: pid_t) -> (down: UInt64, up: UInt64)? {
+        guard let counters = networkSampler.cumulative[pid] else { return nil }
+        return (counters.rx, counters.tx)
+    }
+
     /// 全路径的 basename 比 proc_name 可读（proc_name 会截断到十几个字符）
     fileprivate func processName(_ pid: pid_t) -> String {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))

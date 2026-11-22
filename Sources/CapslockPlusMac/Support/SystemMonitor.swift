@@ -16,6 +16,11 @@ final class SystemMonitor {
     /// 读不到指标的进程数（root 拥有的）
     var unreadableProcessCount: Int { processSampler.unreadableCount }
 
+    /// 某进程的累计下载/上传（字节），没有数据时返回 nil
+    func processNetworkTotals(for pid: pid_t) -> (down: UInt64, up: UInt64)? {
+        processSampler.networkTotals(for: pid)
+    }
+
     /// root 代理是否在正常输出
     var rootActive: Bool { RootProbe.isActive }
 

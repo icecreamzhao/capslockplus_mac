@@ -12,6 +12,9 @@ import Foundation
 /// 它给的是累计值，所以速率要自己做两次采样求差（和 CPU 一样的做法）。
 /// 实测单次 ~14ms，2 秒一次可以接受。
 final class NetworkSampler {
+    /// 每个进程的累计收发（nettop 的 bytes_in / bytes_out，进程启动至今）
+    private(set) var cumulative: [pid_t: (rx: UInt64, tx: UInt64)] = [:]
+
     private var previous: [pid_t: (rx: UInt64, tx: UInt64)] = [:]
     private var previousAt: Date?
 
@@ -35,6 +38,7 @@ final class NetworkSampler {
                 }
             }
         }
+        cumulative = counters
         previous = counters
         previousAt = now
         return rates
