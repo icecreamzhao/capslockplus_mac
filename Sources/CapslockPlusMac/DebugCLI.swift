@@ -64,6 +64,19 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--sys-window-selftest") {
+            let controller = SystemWindowController.shared
+            controller.show()
+            let deadline = Date().addingTimeInterval(0.6)
+            while Date() < deadline {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+            }
+            print("frame=\(controller.debugFrame)")
+            controller.hide()
+            print("after hide=\(controller.debugFrame)")
+            return 0
+        }
+
         if CommandLine.arguments.contains("--sys-test") {
             // 采两次：CPU 与网络速率本质是差值，第一次必然是 0
             let sampler = SystemSampler()

@@ -13,8 +13,8 @@ final class SystemMonitor {
     private let queue = DispatchQueue(label: "capslock.sysmon", qos: .utility)
     private var timer: Timer?
 
-    /// 每次采样完成回调（主线程）
-    var onUpdate: ((SystemSnapshot) -> Void)?
+    /// 每次采样完成（主线程）发通知，窗口和菜单栏各自订阅
+    static let didUpdate = Notification.Name("SystemMonitorDidUpdate")
 
     func start(sampleMs: Int) {
         guard !isRunning else { return }
@@ -43,7 +43,7 @@ final class SystemMonitor {
             let fresh = self.sampler.sample()
             DispatchQueue.main.async {
                 self.snapshot = fresh
-                self.onUpdate?(fresh)
+                NotificationCenter.default.post(name: Self.didUpdate, object: fresh)
             }
         }
     }

@@ -19,7 +19,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var inputSourceItem: NSMenuItem?
     private var capsLockItem: NSMenuItem?
     private var windowBindingsMenu: NSMenu?
-    private var systemItems: [NSMenuItem] = []
     private var secureInputTimer: Timer?
     private var secureInputOn = false
 
@@ -46,11 +45,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        // 读数开关只管菜单栏那串数字；窗口自己会在需要时拉起采样
+        NotificationCenter.default.addObserver(forName: SystemMonitor.didUpdate, object: nil,
+                                               queue: .main) { [weak self] _ in
+            self?.refreshStatusTitle()
+        }
         if Config.shared.systemReadout {
-            SystemMonitor.shared.onUpdate = { [weak self] _ in
-                self?.refreshStatusTitle()
-                self?.refreshSystemMenu()
-            }
             SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
         }
 
@@ -109,21 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inputSourceItem?.title = "输入法：\(InputSource.currentName() ?? "未知")"
         capsLockItem?.title = "大写锁定：\(HIDCapsLock.shared.isLocked ? "开" : "关")"
         refreshWindowBindingsMenu()
-        refreshSystemMenu()
         refreshCapsIndicator()
-    }
-
-    /// 系统那一节：条目数量固定（取不到值的隐藏），值来自最近一次采样
-    private func refreshSystemMenu() {
-        let lines = SystemMonitor.shared.menuLines()
-        for (index, item) in systemItems.enumerated() {
-            if index < lines.count {
-                item.title = "\(lines[index].title)：\(lines[index].value)"
-                item.isHidden = false
-            } else {
-                item.isHidden = true
-            }
-        }
     }
 
     private func installSignalHandlers() {
@@ -198,16 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(capsLockItem)
         self.capsLockItem = capsLockItem
 
-        let system = NSMenuItem(title: "系统", action: nil, keyEquivalent: "")
-        let systemMenu = NSMenu(title: "系统")
-        for _ in 0..<9 {
-            let line = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-            line.isEnabled = false
-            systemMenu.addItem(line)
-            systemItems.append(line)
-        }
-        system.submenu = systemMenu
-        menu.addItem(system)
+        menu.addItem(menuItem("系统信息…", action: #selector(toggleSystemWindow)))
 
         let tools = NSMenuItem(title: "小工具", action: nil, keyEquivalent: "")
         let toolsMenu = NSMenu(title: "小工具")
@@ -321,6 +298,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var secureInputTitle: String {
         guard secureInputOn else { return "安全输入：关" }
         return "安全输入：开（\(SecureInput.ownerName() ?? "某个 App")）"
+    }
+
+    @objc private func toggleSystemWindow() {
+        SystemWindowController.shared.toggle()
     }
 
     @objc private func convertRecordingToGIF() {
