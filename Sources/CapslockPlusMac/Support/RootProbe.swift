@@ -30,6 +30,9 @@ enum RootProbe {
     static var ownerFile: URL { directory.appendingPathComponent("owner.pid") }
     /// 窗口开着才采样：关掉窗口后 root 代理只空转，不烧 CPU
     static var viewingFile: URL { directory.appendingPathComponent("viewing") }
+    /// 进程详情请求/响应（走文件，主进程写请求、root 代理写答案）
+    static var detailRequestFile: URL { directory.appendingPathComponent("detail.request") }
+    static var detailResponseFile: URL { directory.appendingPathComponent("detail.response") }
     static var logFile: URL { directory.appendingPathComponent("agent.log") }
 
     /// 数据新鲜度阈值：代理 2 秒一轮，超过这个时间就认为它已经没了
@@ -139,6 +142,30 @@ enum RootProbe {
         return tail.isEmpty ? "（空日志）" : tail
     }
 
+    /// 通过 root 代理取详情（能读 root 进程的启动时间/参数/工作目录）。
+    /// 代理不在跑或超时则返回 nil，调用方退回本地权限的版本。
+    static func detailFromAgent(pid: Int32, timeout: TimeInterval = 2.5) -> ProcessDetail? {
+        guard isActive else { return nil }
+        let seq = Date().timeIntervalSince1970
+        let request = ProcessDetail(pid: pid, fields: [], executablePath: nil, seq: seq)
+        guard let payload = try? JSONEncoder().encode(request) else { return nil }
+        try? FileManager.default.removeItem(at: detailResponseFile)
+        guard (try? payload.write(to: detailRequestFile, options: .atomic)) != nil else { return nil }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = try? Data(contentsOf: detailResponseFile),
+               let detail = try? JSONDecoder().decode(ProcessDetail.self, from: data),
+               detail.seq == seq, detail.pid == pid {
+                try? FileManager.default.removeItem(at: detailResponseFile)
+                return detail
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        try? FileManager.default.removeItem(at: detailRequestFile)
+        return nil
+    }
+
     /// 窗口显示/隐藏时调用，告诉 root 代理要不要真干活
     static func setViewing(_ viewing: Bool) {
         if viewing {
@@ -194,7 +221,12 @@ enum RootProbe {
         _ = sampler.sample()                       // 建立 CPU 基线
         var written = 0
         var failures = 0
+        var nextSampleAt = Date()
+        let viewingFile = directory.appendingPathComponent("viewing")
+        let requestFile = directory.appendingPathComponent("detail.request")
+        let responseFile = directory.appendingPathComponent("detail.response")
 
+        // 250ms 一轮：详情请求要秒回，采样仍按 2 秒节奏
         while true {
             if FileManager.default.fileExists(atPath: stopFile.path) {
                 log("agent exit: stop file")
@@ -204,9 +236,22 @@ enum RootProbe {
                 log("agent exit: owner \(ownerPID) gone")
                 break
             }
-            // 没人看窗口就空转，别为了一份没人看的数据每 2 秒扫 800 多个进程
-            if !FileManager.default.fileExists(atPath: directory.appendingPathComponent("viewing").path) {
-                Thread.sleep(forTimeInterval: 2.0)
+
+            if let data = try? Data(contentsOf: requestFile),
+               let request = try? JSONDecoder().decode(ProcessDetail.self, from: data) {
+                var detail = ProcessInspector.inspect(pid: pid_t(request.pid))
+                detail.seq = request.seq
+                if let payload = try? JSONEncoder().encode(detail) {
+                    try? payload.write(to: responseFile, options: .atomic)
+                    log("agent detail pid=\(request.pid) fields=\(detail.fields.count)")
+                }
+                try? FileManager.default.removeItem(at: requestFile)
+                continue
+            }
+
+            let viewing = FileManager.default.fileExists(atPath: viewingFile.path)
+            if !viewing || Date() < nextSampleAt {
+                Thread.sleep(forTimeInterval: 0.25)
                 continue
             }
 
@@ -216,8 +261,7 @@ enum RootProbe {
                                memory: $0.memory, ports: $0.ports)
             }
             do {
-                let encoder = JSONEncoder()
-                let data = try encoder.encode(rows)
+                let data = try JSONEncoder().encode(rows)
                 try data.write(to: dataFile, options: .atomic)
                 written += 1
                 if written == 1 || written % 30 == 0 {
@@ -227,7 +271,8 @@ enum RootProbe {
                 failures += 1
                 if failures <= 3 { log("agent write failed: \(error.localizedDescription)") }
             }
-            Thread.sleep(forTimeInterval: 2.0)
+            nextSampleAt = Date().addingTimeInterval(2.0)
+            Thread.sleep(forTimeInterval: 0.25)
         }
 
         try? FileManager.default.removeItem(at: dataFile)
