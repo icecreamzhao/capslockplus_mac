@@ -28,6 +28,8 @@ enum RootProbe {
     static var dataFile: URL { directory.appendingPathComponent("procs.json") }
     static var stopFile: URL { directory.appendingPathComponent("stop") }
     static var ownerFile: URL { directory.appendingPathComponent("owner.pid") }
+    /// 窗口开着才采样：关掉窗口后 root 代理只空转，不烧 CPU
+    static var viewingFile: URL { directory.appendingPathComponent("viewing") }
     static var logFile: URL { directory.appendingPathComponent("agent.log") }
 
     /// 数据新鲜度阈值：代理 2 秒一轮，超过这个时间就认为它已经没了
@@ -137,6 +139,15 @@ enum RootProbe {
         return tail.isEmpty ? "（空日志）" : tail
     }
 
+    /// 窗口显示/隐藏时调用，告诉 root 代理要不要真干活
+    static func setViewing(_ viewing: Bool) {
+        if viewing {
+            try? "1".write(to: viewingFile, atomically: true, encoding: .utf8)
+        } else {
+            try? FileManager.default.removeItem(at: viewingFile)
+        }
+    }
+
     /// 让代理自己退出（普通权限即可：代理在读 stop 文件）
     static func stop() {
         try? "stop".write(to: stopFile, atomically: true, encoding: .utf8)
@@ -192,6 +203,11 @@ enum RootProbe {
             if ownerPID > 0, kill(ownerPID, 0) != 0 {
                 log("agent exit: owner \(ownerPID) gone")
                 break
+            }
+            // 没人看窗口就空转，别为了一份没人看的数据每 2 秒扫 800 多个进程
+            if !FileManager.default.fileExists(atPath: directory.appendingPathComponent("viewing").path) {
+                Thread.sleep(forTimeInterval: 2.0)
+                continue
             }
 
             let list = sampler.sample()

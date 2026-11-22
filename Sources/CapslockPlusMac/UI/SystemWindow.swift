@@ -175,6 +175,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
         }
         NSApp.activate(ignoringOtherApps: true)
+        RootProbe.setViewing(true)
         positionIfNeeded()
         refresh()
         panel.makeKeyAndOrderFront(nil)
@@ -189,6 +190,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     func hide() {
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
+        RootProbe.setViewing(false)
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: "systemWindow.origin")
         panel.orderOut(nil)
     }
