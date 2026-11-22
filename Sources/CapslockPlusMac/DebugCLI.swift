@@ -84,6 +84,35 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--status-readout-selftest") {
+            let view = StatusReadoutView(frame: NSRect(x: 0, y: 0, width: 160, height: 22))
+            view.glyph = NSImage(systemSymbolName: "capsule.portrait", accessibilityDescription: nil)
+
+            func paintedPixels() -> Int {
+                guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 200, pixelsHigh: 22,
+                                                 bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                 isPlanar: false, colorSpaceName: .deviceRGB,
+                                                 bytesPerRow: 0, bitsPerPixel: 0) else { return -1 }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                view.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
+                view.draw(view.bounds)
+                NSGraphicsContext.restoreGraphicsState()
+                guard let data = rep.bitmapData else { return -1 }
+                var count = 0
+                for index in stride(from: 3, to: 200 * 22 * 4, by: 4) where data[index] > 8 { count += 1 }
+                return count
+            }
+
+            view.update(caps: false, cpu: "", mem: "")
+            print(String(format: "icon-only  width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
+            view.update(caps: false, cpu: "16%", mem: "35%")
+            print(String(format: "cpu+mem    width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
+            view.update(caps: true, cpu: "100%", mem: "35%")
+            print(String(format: "caps+100%%  width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
+            return 0
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--proc-detail"),
            index + 1 < CommandLine.arguments.count,
            let pid = pid_t(CommandLine.arguments[index + 1]) {

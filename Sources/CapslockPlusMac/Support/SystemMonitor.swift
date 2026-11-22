@@ -89,10 +89,10 @@ final class SystemMonitor {
 
     // MARK: - 菜单栏紧凑读数
 
-    /// "12% · 68%"；关闭或还没采到数据时返回空串
-    var readoutText: String {
-        guard isRunning, !snapshot.sampledAt.timeIntervalSince1970.isZero else { return "" }
-        return "\(SystemFormat.percent(snapshot.cpu)) · \(SystemFormat.percent(snapshot.memPercent))"
+    /// 菜单栏两行读数用的两个数：CPU% 与 内存%。关闭或还没采到数据时返回 nil
+    var readoutParts: (cpu: String, mem: String)? {
+        guard isRunning, !snapshot.sampledAt.timeIntervalSince1970.isZero else { return nil }
+        return (SystemFormat.percent(snapshot.cpu), SystemFormat.percent(snapshot.memPercent))
     }
 
     /// 悬停提示：比标题多给一点上下文

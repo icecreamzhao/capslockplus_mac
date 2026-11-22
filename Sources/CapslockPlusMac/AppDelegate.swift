@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let caps = CapsState()
     private var engine: EventTapEngine?
     private var statusItem: NSStatusItem?
+    /// 菜单栏两行读数（标签在上、数值在下）；图标也由它画，见 setStatusGlyph
+    private var readoutView: StatusReadoutView?
     private var permissionItem: NSMenuItem?
     private var remapItem: NSMenuItem?
     private var gifToolItem: NSMenuItem?
@@ -89,13 +91,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 之前 CAPS 直接写 button.title，加上读数后两边会互相覆盖，所以统一走这里。
     func refreshStatusTitle() {
         let locked = HIDCapsLock.shared.isLocked
-        let readout = Config.shared.systemReadout ? SystemMonitor.shared.readoutText : ""
-        let parts = [locked ? "CAPS" : "", readout].filter { !$0.isEmpty }
-        let title = parts.joined(separator: " · ")
-        statusItem?.button?.title = title.isEmpty ? "" : " " + title
-        statusItem?.button?.imagePosition = title.isEmpty ? .imageOnly : .imageLeft
+        let readout = Config.shared.systemReadout ? SystemMonitor.shared.readoutParts : nil
+        readoutView?.update(caps: locked, cpu: readout?.cpu ?? "", mem: readout?.mem ?? "")
+        // 自绘视图的画布宽度要自己告诉状态栏
+        if let view = readoutView {
+            statusItem?.length = view.requiredWidth()
+        }
         if !MenuBarProgressIndicator.shared.isActive {
             statusItem?.button?.toolTip = SystemMonitor.shared.readoutToolTip
+        }
+    }
+
+    /// 状态栏图标统一入口：有自绘读数视图就交给它，否则退回按钮图标
+    private func setStatusGlyph(_ image: NSImage?) {
+        if let readoutView {
+            readoutView.glyph = image
+        } else {
+            statusItem?.button?.image = image
         }
     }
 
@@ -146,8 +158,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        let image = normalStatusImage()
-        item.button?.image = image
+        // 菜单栏内容全部由自绘视图负责（图标 + 两行读数），按钮本身不放标题
+        let readout = StatusReadoutView(frame: NSRect(x: 0, y: 0, width: 60, height: 22))
+        readout.autoresizingMask = [.width, .height]
+        if let button = item.button {
+            readout.frame = button.bounds
+            button.addSubview(readout)
+            button.title = ""
+        }
+        readoutView = readout
+        setStatusGlyph(normalStatusImage())
         item.button?.toolTip = "Capslock+"
 
         let menu = NSMenu()
@@ -254,12 +274,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             Log.warn("secureInput on app=\(name ?? "?") pid=\(pid)")
             caps.forceReset(reason: "secureInput")
             let image = statusImage(["lock.fill", "lock"], description: "安全输入")
-            statusItem?.button?.image = image
+            setStatusGlyph(image)
             statusItem?.button?.toolTip = "因 \(name ?? "某个 App") 开启安全输入，热键暂停"
         } else {
             Log.info("secureInput off")
-            let image = normalStatusImage()
-            statusItem?.button?.image = image
+            setStatusGlyph(normalStatusImage())
             statusItem?.button?.toolTip = "Capslock+"
             engine?.ensureHealthy()
         }

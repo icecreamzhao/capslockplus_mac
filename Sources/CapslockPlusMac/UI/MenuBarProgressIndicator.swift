@@ -88,8 +88,24 @@ final class MenuBarProgressIndicator {
 
     func attach(_ statusItem: NSStatusItem) {
         item = statusItem
-        originalImage = statusItem.button?.image
+        originalImage = currentGlyph()
         originalToolTip = statusItem.button?.toolTip
+    }
+
+    /// 状态栏图标可能画在自绘读数视图里（StatusReadoutView），也可能就是 button.image
+    private func currentGlyph() -> NSImage? {
+        if let view = item?.button?.subviews.compactMap({ $0 as? StatusReadoutView }).first {
+            return view.glyph
+        }
+        return item?.button?.image
+    }
+
+    private func setGlyph(_ image: NSImage?, on button: NSStatusBarButton) {
+        if let view = button.subviews.compactMap({ $0 as? StatusReadoutView }).first {
+            view.glyph = image
+        } else {
+            button.image = image
+        }
     }
 
     /// 开始一个任务；同一 label 可以并存多个（各拿各的句柄）。
@@ -150,7 +166,7 @@ final class MenuBarProgressIndicator {
 
     private func render() {
         guard let button = item?.button, let top = entries.last else { return }
-        button.image = ProgressGlyph.image(fraction: top.fraction, phase: phase)
+        setGlyph(ProgressGlyph.image(fraction: top.fraction, phase: phase), on: button)
         button.toolTip = top.fraction.map { "\(top.label) \(Int(($0 * 100).rounded()))%" } ?? top.label
     }
 
@@ -161,7 +177,7 @@ final class MenuBarProgressIndicator {
             return
         }
         Log.info("progressBar restore image=\(originalImage == nil ? "nil" : "ok")")
-        button.image = originalImage
+        setGlyph(originalImage, on: button)
         button.toolTip = originalToolTip ?? "Capslock+"
     }
 }
