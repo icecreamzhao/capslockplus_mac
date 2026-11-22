@@ -74,8 +74,11 @@ enum RootProbe {
         try? "\(ProcessInfo.processInfo.processIdentifier)".write(to: ownerFile, atomically: true, encoding: .utf8)
 
         // 注意：整条命令用单引号包路径，避免 AppleScript 的双引号冲突
-        let command = "mkdir -p '\(directory.path)' && nohup '\(executable)' --root-agent '\(directory.path)'"
-            + " >> '\(logFile.path)' 2>&1 & echo started"
+        // 既不用 nohup（没有控制终端，nohup 会 "can't detach from console" 后退出），
+        // 也不用 &（`do shell script` 结束会带走子进程）。
+        // 让代理**前台**跑在 root shell 里：osascript 一直等到代理退出为止，
+        // 代理因此始终活着；停止时写 stop 文件 → 代理退出 → shell/osascript 退出。
+        let command = "mkdir -p '\(directory.path)' && exec '\(executable)' --root-agent '\(directory.path)'"
         let script = "do shell script \"\(command)\" with administrator privileges"
 
         DispatchQueue.global(qos: .userInitiated).async {
@@ -94,31 +97,44 @@ enum RootProbe {
                 return
             }
 
+            // osascript 会一直挂着（代理在前台跑），所以不能 waitUntilExit，
+            // 只能轮询"数据文件有没有出现"；用户取消授权时 osascript 会自己退出。
+            var waited = 0.0
+            while waited < 10.0 {
+                if isActive {
+                    DispatchQueue.main.async { completion(nil) }
+                    return
+                }
+                if !process.isRunning { break }
+                Thread.sleep(forTimeInterval: 0.2)
+                waited += 0.2
+            }
+
+            if process.isRunning {
+                // 代理在跑却没数据：让它退出，免得留一个不干活的 root 进程
+                process.terminate()
+                DispatchQueue.main.async {
+                    completion("代理已启动但没有产出数据。日志：\n\(Self.logTail())")
+                }
+                return
+            }
+
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             let message = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-
-            // 用户取消时 osascript 返回 -128，stderr 里有 User canceled
-            if process.terminationStatus != 0 {
-                let reason = message.contains("-128") || message.lowercased().contains("cancel")
-                    ? "已取消授权" : (message.isEmpty ? "授权失败（退出码 \(process.terminationStatus)）" : message)
-                DispatchQueue.main.async { completion(reason) }
-                return
-            }
-
-            // 等代理真正写出第一份数据
-            var waited = 0.0
-            while waited < 6.0 {
-                if isActive { break }
-                Thread.sleep(forTimeInterval: 0.2)
-                waited += 0.2
-            }
-            let ready = isActive
-            DispatchQueue.main.async {
-                completion(ready ? nil : "代理已启动但没写出数据，检查 \(logFile.path)")
-            }
+            let reason = message.contains("-128") || message.lowercased().contains("cancel")
+                ? "已取消授权"
+                : (message.isEmpty ? "授权失败（退出码 \(process.terminationStatus)）" : message)
+            DispatchQueue.main.async { completion(reason) }
         }
+    }
+
+    /// 最近几行代理日志，报错时直接摆给用户看
+    static func logTail(lines: Int = 4) -> String {
+        guard let text = try? String(contentsOf: logFile, encoding: .utf8) else { return "（无日志）" }
+        let tail = text.split(separator: "\n").suffix(lines).joined(separator: "\n")
+        return tail.isEmpty ? "（空日志）" : tail
     }
 
     /// 让代理自己退出（普通权限即可：代理在读 stop 文件）
@@ -148,11 +164,11 @@ enum RootProbe {
             }
         }
 
-        log("agent start uid=\(getuid()) pid=\(ProcessInfo.processInfo.processIdentifier)")
         guard getuid() == 0 else {
             log("agent abort: not root")
             return 1
         }
+        log("agent start uid=0 pid=\(ProcessInfo.processInfo.processIdentifier)")
 
         let stopFile = directory.appendingPathComponent("stop")
         let dataFile = directory.appendingPathComponent("procs.json")
