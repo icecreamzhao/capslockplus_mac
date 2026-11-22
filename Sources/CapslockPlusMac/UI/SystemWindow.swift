@@ -217,7 +217,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let hidden = SystemMonitor.shared.unreadableProcessCount
         let age = max(Int(Date().timeIntervalSince(snapshot.sampledAt).rounded()), 0)
         var footer = "共 \(count) 个进程"
-        if hidden > 0 { footer += "（\(hidden) 个系统进程无权限读取，需 root）" }
+        if hidden > 0 { footer += "（\(hidden) 个系统进程只能显示名字/端口，CPU·内存需 root）" }
         footer += " · 点表头排序 · 每 \(Config.shared.systemSampleMs / 1000) 秒刷新 · \(age) 秒前"
         footerLabel.stringValue = footer
     }
@@ -296,10 +296,21 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             cell.stringValue = sample.name
             cell.toolTip = "pid \(sample.pid)"
         case "cpu":
+            guard sample.measurable else {
+                cell.stringValue = "—"
+                cell.textColor = .tertiaryLabelColor
+                cell.toolTip = "root 拥有的进程，读 CPU 需要 system-task-ports 权限"
+                return cell
+            }
             cell.stringValue = String(format: "%.1f%%", sample.cpu)
             // 超过 10% 标橙、超过 50% 标红，扫一眼就知道谁在抢 CPU
             cell.textColor = sample.cpu >= 50 ? .systemRed : (sample.cpu >= 10 ? .systemOrange : .labelColor)
         case "memory":
+            guard sample.measurable else {
+                cell.stringValue = "—"
+                cell.textColor = .tertiaryLabelColor
+                return cell
+            }
             cell.stringValue = SystemFormat.bytes(sample.memory)
         case "ports":
             // 只显示前两个，多了用 +N 概括，完整列表放 tooltip

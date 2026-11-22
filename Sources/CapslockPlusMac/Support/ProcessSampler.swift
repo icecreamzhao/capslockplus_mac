@@ -9,6 +9,8 @@ struct ProcessSample {
     var memory: UInt64       // 字节，优先用 phys_footprint（活动监视器同口径）
     /// 该进程正在监听的 TCP 端口（已去重、升序）；空表示没有监听
     var ports: [UInt16] = []
+    /// CPU/内存是否有权限读取。root 进程读不到，但名字和端口照样能拿到
+    var measurable: Bool = true
 }
 
 /// 采集进程列表。
@@ -56,19 +58,24 @@ final class ProcessSampler {
             let pid = pids[index]
             guard pid > 0 else { continue }
 
-            guard let stats = stats(for: pid) else {
+            // 名字和端口能读、CPU/内存可能读不到（root 进程），三者分别降级，
+            // 绝不能因为读不到 CPU 就把整行丢掉 —— 那样 nginx:8080 会凭空消失
+            let stats = stats(for: pid)
+            if let stats {
+                nextTicks[pid] = stats.cpuTicks
+            } else {
                 unreadable += 1
-                continue
             }
-            nextTicks[pid] = stats.cpuTicks
 
             var cpu = 0.0
-            if elapsedNs > 0, let last = previous[pid], stats.cpuTicks >= last {
+            if let stats, elapsedNs > 0, let last = previous[pid], stats.cpuTicks >= last {
                 let deltaNs = Double(toNanoseconds(stats.cpuTicks - last))
                 cpu = deltaNs / elapsedNs * 100
             }
-            results.append(ProcessSample(pid: pid, name: stats.name, cpu: cpu,
-                                         memory: stats.memory, ports: listeningPorts(of: pid)))
+            results.append(ProcessSample(pid: pid, name: stats?.name ?? processName(pid), cpu: cpu,
+                                         memory: stats?.memory ?? 0,
+                                         ports: listeningPorts(of: pid),
+                                         measurable: stats != nil))
         }
 
         previous = nextTicks
@@ -140,7 +147,7 @@ final class ProcessSampler {
     }
 
     /// 全路径的 basename 比 proc_name 可读（proc_name 会截断到十几个字符）
-    private func processName(_ pid: pid_t) -> String {
+    fileprivate func processName(_ pid: pid_t) -> String {
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
         if proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 {
             return URL(fileURLWithPath: String(cString: buffer)).lastPathComponent
