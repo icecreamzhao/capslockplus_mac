@@ -98,10 +98,22 @@ open /Applications/CapslockPlusMac.app
 
 ### 6. 活动监视器
 
-菜单栏图标旁显示紧凑读数 **`12% · 68%`**（CPU · 内存），点菜单里的 **活动监视器…** 打开窗口：
+菜单栏显示四组紧凑读数（标签在上、数值在下）：
+
+```
+   CPU   内存   下载   上传
+   16%    35%   4.0M    46K
+```
+
+网络只统计**物理网卡**（en*）—— 开 VPN 时同一份字节会同时记在 utun 和 en0 上，
+全加起来会翻倍，所以隧道单独统计（非零时 tooltip 里会带一行）。走热点时 CPU 标签前会出现橙色 wifi 小图标。
+
+点菜单里的 **活动监视器…** 打开窗口：
 
 ```
 上半屏   CPU / 内存 进度条，一行摘要：负载 · 温度 · 风扇 · 电池
+         一行网卡明细：en0★ ↓1.2M ↑46K   utun3 ↓0 ↑0 …
+         （★ = 默认路由所在网卡；物理口总是显示，隧道/虚拟/热点有流量才出现）
 下半屏   进程表：进程名 · CPU · 内存 · 端口 · PID
          点表头按任意列排序（默认 CPU 降序），CPU >10% 标橙、>50% 标红
          「端口」列显示该进程正在监听的 TCP 端口（蓝色，多于两个显示 +N，悬停看全部）
@@ -121,6 +133,8 @@ CPU 总占用   mach host_statistics(HOST_CPU_LOAD_INFO)
 进程列表    libproc proc_listpids(PROC_ALL_PIDS)
 监听端口    libproc PROC_PIDLISTFDS + PROC_PIDFDSOCKETINFO（只取 TCP、state=LISTEN，IPv4/IPv6 去重）
 温度/风扇   IOKit AppleSMC（只读）
+网络分卡    libc getifaddrs + if_data，按名字分类：en*=物理 / utun*=隧道 / bridge*=虚拟 /
+           ap*=热点 / awdl*=直连；物理口与隧道分开汇总，避免 VPN 下重复计数
 电池        IOKit.ps + AppleSmartBattery
 ```
 
