@@ -184,7 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(capsLockItem)
         self.capsLockItem = capsLockItem
 
-        menu.addItem(menuItem("系统信息…", action: #selector(toggleSystemWindow)))
+        menu.addItem(menuItem("活动监视器…", action: #selector(toggleSystemWindow)))
 
         let tools = NSMenuItem(title: "小工具", action: nil, keyEquivalent: "")
         let toolsMenu = NSMenu(title: "小工具")

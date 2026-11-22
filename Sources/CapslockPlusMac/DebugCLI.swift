@@ -64,6 +64,25 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--proc-test") {
+            let sampler = ProcessSampler()
+            _ = sampler.sample()                    // 第一次只是建立基线
+            usleep(1_200_000)
+            let list = sampler.sample()
+            func line(_ p: ProcessSample) -> String {
+                String(format: "%-26@ pid=%6d cpu=%6.1f%% mem=%8.1fMB",
+                       p.name as NSString, p.pid, p.cpu, Double(p.memory) / 1048576)
+            }
+            print("count=\(list.count)")
+            print("--- top CPU ---")
+            for item in list.prefix(8) { print(line(item)) }
+            print("--- top MEM ---")
+            for item in list.sorted(by: { $0.memory > $1.memory }).prefix(8) { print(line(item)) }
+            let sum = list.reduce(0.0) { $0 + $1.cpu }
+            print(String(format: "sum(cpu)=%.1f%% （系统总占用见 --sys-test）", sum))
+            return 0
+        }
+
         if CommandLine.arguments.contains("--sys-window-selftest") {
             let controller = SystemWindowController.shared
             controller.show()

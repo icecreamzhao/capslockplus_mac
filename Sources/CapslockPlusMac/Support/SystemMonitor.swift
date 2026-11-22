@@ -10,6 +10,9 @@ final class SystemMonitor {
     private(set) var snapshot = SystemSnapshot()
     private(set) var isRunning = false
     private let sampler = SystemSampler()
+    private let processSampler = ProcessSampler()
+    /// 最近一次进程列表（按 CPU 降序）
+    private(set) var processes: [ProcessSample] = []
     private let queue = DispatchQueue(label: "capslock.sysmon", qos: .utility)
     private var timer: Timer?
 
@@ -41,8 +44,10 @@ final class SystemMonitor {
         queue.async { [weak self] in
             guard let self else { return }
             let fresh = self.sampler.sample()
+            let list = self.processSampler.sample()
             DispatchQueue.main.async {
                 self.snapshot = fresh
+                self.processes = list
                 NotificationCenter.default.post(name: Self.didUpdate, object: fresh)
             }
         }
@@ -64,38 +69,4 @@ final class SystemMonitor {
             + " · 负载 \(String(format: "%.2f", snapshot.load1))"
     }
 
-    // MARK: - 菜单里那一节
-
-    /// 顺序固定，界面按这个顺序渲染；取不到值的条目直接不出现（不显示 "未知" 占位）
-    func menuLines() -> [(title: String, value: String)] {
-        let snap = snapshot
-        let cores = ProcessInfo.processInfo.processorCount
-        var lines: [(String, String)] = []
-
-        lines.append(("CPU", "\(SystemFormat.percent(snap.cpu))（\(cores) 核）"))
-        lines.append(("内存", "\(SystemFormat.bytes(snap.memUsed)) / \(SystemFormat.bytes(snap.memTotal))"
-            + "（\(SystemFormat.percent(snap.memPercent))）"))
-        lines.append(("负载", String(format: "%.2f · %.2f · %.2f", snap.load1, snap.load5, snap.load15)))
-        lines.append(("运行时间", SystemFormat.duration(snap.uptime)))
-        if snap.diskTotal > 0 {
-            lines.append(("磁盘", "剩余 \(SystemFormat.bytes(snap.diskFree)) / \(SystemFormat.bytes(snap.diskTotal))"))
-        }
-        lines.append(("网络", "↓ \(SystemFormat.rate(snap.netDown)) · ↑ \(SystemFormat.rate(snap.netUp))"))
-        if let percent = snap.batteryPercent {
-            var text = "\(percent)%"
-            if snap.batteryCharging { text += " · 充电中" }
-            if let health = snap.batteryHealth { text += " · 健康 \(health)%" }
-            if let cycles = snap.batteryCycles { text += " · 循环 \(cycles) 次" }
-            lines.append(("电池", text))
-        }
-        if let temperature = snap.cpuTemp {
-            lines.append(("温度", String(format: "%.0f °C", temperature)))
-        }
-        if snap.fanCount > 0, let rpm = snap.fanRPM {
-            // 0 rpm 不是"读不到"，是风扇真的停了（Apple Silicon 低温会完全停转）
-            let text = rpm == 0 ? "停转（\(snap.fanCount) 个）" : "\(rpm) rpm（\(snap.fanCount) 个）"
-            lines.append(("风扇", text))
-        }
-        return lines
-    }
 }
