@@ -92,7 +92,9 @@ final class SystemMonitor {
             lines.append(("温度", String(format: "%.0f °C", temperature)))
         }
         if snap.fanCount > 0, let rpm = snap.fanRPM {
-            lines.append(("风扇", "\(rpm) rpm（\(snap.fanCount) 个）"))
+            // 0 rpm 不是"读不到"，是风扇真的停了（Apple Silicon 低温会完全停转）
+            let text = rpm == 0 ? "停转（\(snap.fanCount) 个）" : "\(rpm) rpm（\(snap.fanCount) 个）"
+            lines.append(("风扇", text))
         }
         return lines
     }

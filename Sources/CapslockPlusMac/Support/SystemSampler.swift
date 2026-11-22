@@ -194,13 +194,17 @@ final class SystemSampler {
             var unmanaged: Unmanaged<CFMutableDictionary>?
             if IORegistryEntryCreateCFProperties(service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS,
                let properties = unmanaged?.takeRetainedValue() as? [String: Any] {
-                let design = (properties["DesignCapacity"] as? Int) ?? 0
-                let raw = (properties["AppleRawMaxCapacity"] as? Int)
-                    ?? (properties["NominalChargeCapacity"] as? Int) ?? 0
+                // Apple Silicon 把容量指标藏在嵌套的 BatteryData 里，顶层没有 DesignCapacity；
+                // Intel 机型则在顶层。两条都试一遍，谁有数据用谁。
+                let nested = properties["BatteryData"] as? [String: Any] ?? [:]
+                let design = (nested["DesignCapacity"] as? Int) ?? (properties["DesignCapacity"] as? Int) ?? 0
+                let raw = (nested["FullChargeCapacity"] as? Int)
+                    ?? (nested["AppleRawMaxCapacity"] as? Int)
+                    ?? (properties["AppleRawMaxCapacity"] as? Int) ?? 0
                 if design > 0, raw > 0 {
                     health = Int((Double(raw) / Double(design) * 100).rounded())
                 }
-                cycles = properties["CycleCount"] as? Int
+                cycles = (properties["CycleCount"] as? Int) ?? (nested["CycleCount"] as? Int)
                 if percent == nil,
                    let current = properties["CurrentCapacity"] as? Int,
                    let maximum = properties["MaxCapacity"] as? Int, maximum > 0 {
