@@ -122,6 +122,9 @@ enum DebugCLI {
                 widths.insert(Double(view.requiredWidth()))
             }
             print("width stability: \(widths.count == 1 ? "稳定 ✓" : "抖动 ✗") widths=\(widths.sorted())")
+
+            view.update(caps: false, cpu: "16%", mem: "35%", down: "4.0M", up: "46K", hotspot: true)
+            print(String(format: "hotspot on width=%.1f pixels=%d", view.requiredWidth(), paintedPixels()))
             return 0
         }
 
