@@ -193,8 +193,16 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
 
     /// 自检用
     var debugInfo: String {
-        "visible=\(panel.isVisible ? 1 : 0) fields=\(detail?.fields.count ?? 0)"
-            + " size=\(Int(panel.frame.width))x\(Int(panel.frame.height))"
+        let buttons = (panel.contentView?.subviews.compactMap { $0 as? NSButton } ?? [])
+            .map { "\($0.title)[\(Int($0.frame.minX))-\(Int($0.frame.maxX))]" }
+            .joined(separator: " ")
+        return "visible=\(panel.isVisible ? 1 : 0) fields=\(detail?.fields.count ?? 0)"
+            + " size=\(Int(panel.frame.width))x\(Int(panel.frame.height)) buttons=\(buttons)"
+    }
+
+    /// 自检用：读某个字段当前显示的文本
+    func valueFor(_ label: String) -> String {
+        valueFields[label]?.stringValue ?? "-"
     }
 
     func hide() {

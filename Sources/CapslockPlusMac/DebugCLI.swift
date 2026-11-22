@@ -134,6 +134,10 @@ enum DebugCLI {
             ProcessDetailPanel.shared.show(ProcessInspector.inspect(pid: getpid()))
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
             print("detail panel: \(ProcessDetailPanel.shared.debugInfo)")
+            let cpuBefore = ProcessDetailPanel.shared.valueFor("累计 CPU")
+            RunLoop.current.run(until: Date().addingTimeInterval(3.2))
+            let cpuAfter = ProcessDetailPanel.shared.valueFor("累计 CPU")
+            print("auto refresh: 累计 CPU \(cpuBefore) -> \(cpuAfter)")
             ProcessDetailPanel.shared.hide()
 
             let bench = controller.debugScrollBench()
