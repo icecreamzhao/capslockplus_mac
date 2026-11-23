@@ -217,6 +217,14 @@ enum DebugCLI {
             return 0
         }
 
+        if let index = CommandLine.arguments.firstIndex(of: "--device-menu-selftest") {
+            guard index + 1 < CommandLine.arguments.count else {
+                print("usage: --device-menu-selftest <hostname>")
+                return 1
+            }
+            return runDeviceMenuSelfTest(hostname: CommandLine.arguments[index + 1])
+        }
+
         if CommandLine.arguments.contains("--sys-test") {
             // 采两次：CPU 与网络速率本质是差值，第一次必然是 0
             let sampler = SystemSampler()
@@ -411,6 +419,52 @@ enum DebugCLI {
 
         return nil
     }
+}
+
+/// `--device-menu-selftest` 的主流程：锁定"重建设备菜单不能把模式打回本机"。
+private func runDeviceMenuSelfTest(hostname: String) -> Int32 {
+    let defaults = UserDefaults.standard
+    let key = "systemWindow.device"
+    let original = defaults.string(forKey: key)
+    defer {
+        if let original {
+            defaults.set(original, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
+    }
+    defaults.set(hostname, forKey: key)
+
+    let controller = SystemWindowController()
+    controller.show()
+    let waitUntil = Date().addingTimeInterval(2)
+    while Date() < waitUntil {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+    }
+
+    var assertions = 0
+    var failures: [String] = []
+    for attempt in 1...3 {
+        let state = controller.debugRebuildMenuForTest()
+        print("mode=\(state.mode) popup=\(state.popup) rows=\(state.rows)")
+        assertions += 2
+        if state.mode != hostname {
+            failures.append("rebuild #\(attempt): mode=\(state.mode) expected=\(hostname)")
+        }
+        if !state.popup.contains(hostname) {
+            failures.append("rebuild #\(attempt): popup=\(state.popup) missing \(hostname)")
+        }
+    }
+    controller.hide()
+
+    if failures.isEmpty {
+        print("device-menu selftest OK (\(assertions) assertions)")
+        return 0
+    }
+    for failure in failures {
+        print("FAIL \(failure)")
+    }
+    return 1
 }
 
 /// `--remote-probe` 的主流程。成功/失败都直接 exit，避免回到 App 启动流程。

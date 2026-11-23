@@ -58,6 +58,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var deviceRequestInFlight = false
     private var deviceMenuOpen = false
     private var deviceMenuNeedsRebuild = false
+    private var suppressDeviceAction = false
 
     private var remoteDetailInstanceID: Int64 = 0
     private var remoteDetailPid: pid_t = 0
@@ -67,7 +68,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var remoteDetailLoading = false
     private var remoteDetailSerial = 0
 
-    private override init() {
+    override init() {
         panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 690, height: 560),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
                             backing: .buffered, defer: false)
@@ -364,7 +365,13 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     @objc private func devicePopUpChanged(_ sender: NSPopUpButton) {
+        guard !suppressDeviceAction else { return }
         guard let target = sender.selectedItem?.representedObject as? String else { return }
+        if target == (remoteHostname ?? Self.localDeviceID) {
+            // 已经是当前模式：只保证显示对齐，绝不再调 selectCurrentInDeviceMenu()——
+            // 若 selectItem(at:) 本身也会发 action，这里再选一次就是无限递归。
+            return
+        }
         if target == Self.localDeviceID {
             switchToLocal()
         } else {
@@ -442,6 +449,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     private func rebuildDeviceMenu(_ devices: [RemoteDevice]) {
+        let savedTarget = devicePopUp.target
+        devicePopUp.target = nil
+        suppressDeviceAction = true
+        defer {
+            devicePopUp.target = savedTarget
+            suppressDeviceAction = false
+            selectCurrentInDeviceMenu()
+        }
         guard let menu = devicePopUp.menu else { return }
         menu.removeAllItems()
 
@@ -465,10 +480,17 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let settings = NSMenuItem(title: "设置服务器…", action: #selector(editServer), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
-        selectCurrentInDeviceMenu()
     }
 
     private func updateDeviceMenuInPlace(_ devices: [RemoteDevice]) {
+        let savedTarget = devicePopUp.target
+        devicePopUp.target = nil
+        suppressDeviceAction = true
+        defer {
+            devicePopUp.target = savedTarget
+            suppressDeviceAction = false
+            selectCurrentInDeviceMenu()
+        }
         guard let menu = devicePopUp.menu else { return }
         var byHost: [String: RemoteDevice] = [:]
         for device in devices where !device.hostname.isEmpty {
@@ -487,7 +509,6 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             menu.insertItem(makeDeviceItem(hostname: device.hostname, device: device), at: insertAt)
             insertAt += 1
         }
-        selectCurrentInDeviceMenu()
         menu.update()   // 菜单还开着时让新条目立刻重排显示
     }
 
@@ -517,6 +538,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     private func selectCurrentInDeviceMenu() {
+        // 必须在 devicePopUp.target 恢复之后再调用，不能在 target 为 nil 的重建窗口里提前选中。
         guard let menu = devicePopUp.menu else { return }
         let target = remoteHostname ?? Self.localDeviceID
         if let item = menu.items.first(where: { ($0.representedObject as? String) == target }) {
@@ -675,7 +697,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let down = remoteRows.reduce(0.0) { $0 + $1.down }
         let up = remoteRows.reduce(0.0) { $0 + $1.up }
         networkLabel.stringValue = "网络  Σ ↓\(SystemFormat.compactRate(down)) ↑\(SystemFormat.compactRate(up))"
-        networkLabel.toolTip = "\(host) 上全部进程的实时收发合计"
+        networkLabel.toolTip = "\(host) 上全部进程的实时收发合计（远端设备暂不采集网卡明细）"
 
         rootButton.title = "显示系统进程…"
         rootButton.isEnabled = false
@@ -870,6 +892,13 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             + " tableFrameW=\(Int(table.frame.width)) contentW=\(Int(scrollView.contentSize.width))"
             + " spacing=\(table.intercellSpacing.width) sumW=\(Int(table.tableColumns.reduce(0) { $0 + $1.width }))"
             + " sort=\(sortKey)\(sortAscending ? "asc" : "desc")"
+    }
+
+    /// 自检用：重建设备菜单并返回当前模式、选中标题和行数。
+    @discardableResult
+    func debugRebuildMenuForTest() -> (mode: String, popup: String, rows: Int) {
+        rebuildDeviceMenu(cachedDevices)
+        return (remoteHostname ?? "local", devicePopUp.titleOfSelectedItem ?? "nil", displayRows.count)
     }
 
     // MARK: - 进程详情
