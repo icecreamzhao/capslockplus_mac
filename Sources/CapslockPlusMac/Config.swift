@@ -29,6 +29,8 @@ final class Config {
     private(set) var panelRenderMode: String = "html"
     /// 长按切输入法成功后，底部 HUD 停留毫秒数；0 = 不弹。
     private(set) var imeToastMs: Int = 700
+    /// 单点切换大小写后，中央 HUD 停留毫秒数；0 = 不弹。
+    private(set) var capsToastMs: Int = 700
     /// 菜单栏是否显示「CPU% · 内存%」紧凑读数
     private(set) var systemReadout = true
     /// 系统采样间隔（毫秒）
@@ -188,6 +190,7 @@ final class Config {
         panelRenderMode = (root["panelRenderMode"] as? String)?.lowercased() ?? "html"
         let toastMs = (root["imeToastMs"] as? NSNumber)?.intValue ?? 700
         imeToastMs = min(max(toastMs, 0), 3000)
+        capsToastMs = Config.parseCapsToastMs(root)
 
         systemReadout = (root["systemReadout"] as? Bool) ?? true
         let sample = (root["systemSampleMs"] as? NSNumber)?.intValue ?? 2000
@@ -245,8 +248,14 @@ final class Config {
             longPress: longPress,
             bindings: bindings
         )
-        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs) sysReadout=\(systemReadout ? 1 : 0)/\(systemSampleMs)ms")
+        Log.info("configLoaded n=\(bindings.count) clipboardFallback=\(clipboardFallbackApps.count) renderMode=\(panelRenderMode) imeToastMs=\(imeToastMs) capsToastMs=\(capsToastMs) sysReadout=\(systemReadout ? 1 : 0)/\(systemSampleMs)ms")
         return true
+    }
+
+    /// `capsToastMs` 的解析与夹取。自检直接喂 JSON 走同一个函数，避免另写一份规则。
+    static func parseCapsToastMs(_ root: [String: Any]) -> Int {
+        let raw = (root["capsToastMs"] as? NSNumber)?.intValue ?? 700
+        return min(max(raw, 0), 3000)
     }
 
     private func writeDefaultFile() {

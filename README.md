@@ -48,7 +48,7 @@ open /Applications/CapslockPlusMac.app
         ctrl+h 左半屏  ctrl+l 右半屏  ctrl+k 上半屏  ctrl+j 下半屏
         ctrl+return 最大化  ctrl+c 居中
 其他    f5 重载键位表   esc / ` / tab 直接吞掉
-单按 Caps = 切换大小写
+单按 Caps = 切换大小写（屏幕正中弹 HUD：主行当前输入法名，副行 CAPS 开 / CAPS 关）
 长按 Caps 0.6 秒 = 切换输入法（到 0.6s 当场触发一次，之后仍可按着继续用组合键）
            切换成功后屏幕正中会短暂显示切换到的输入法名字；`keymap.json` 里 `imeToastMs`
            可调停留毫秒（默认 700，0 = 不显示）
@@ -68,6 +68,8 @@ open /Applications/CapslockPlusMac.app
 ### 3. 改键位
 
 键位表在 `~/.config/capslock-plus-mac/keymap.json`，改完按 **caps+F5** 生效，不用重新编译。
+顶上还可以加 `capsToastMs` 控制单点 Caps HUD 的停留毫秒（默认 700，0 = 不弹），
+和长按切输入法的 `imeToastMs` 分开设置。
 
 ### 4. 划词翻译
 

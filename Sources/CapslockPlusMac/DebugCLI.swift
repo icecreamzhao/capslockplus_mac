@@ -781,6 +781,24 @@ func runSelfTest() -> Int32 {
         failures.append("unknown tap action")
     }
 
+    // capsToastMs：JSON 解析 + 夹取（0 / 700 / 9999 → 0 / 700 / 3000）
+    let capsToastCases: [(String, Int)] = [
+        (#"{"capsToastMs": 0}"#, 0),
+        (#"{"capsToastMs": 700}"#, 700),
+        (#"{"capsToastMs": 9999}"#, 3000),
+    ]
+    for (json, expected) in capsToastCases {
+        guard let data = json.data(using: .utf8),
+              let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            failures.append("capsToastMs bad json \(json)")
+            continue
+        }
+        let actual = Config.parseCapsToastMs(root)
+        if actual != expected {
+            failures.append("capsToastMs \(json) -> \(actual), expected \(expected)")
+        }
+    }
+
     // 往返自检：动作的 name 必须能被 parse 回同一个动作。
     // 这条是防"新增动作时忘了同步 name 或解析表"——两处手工映射，漏一处编译照样过。
     for (key, action) in Action.fixedTable {

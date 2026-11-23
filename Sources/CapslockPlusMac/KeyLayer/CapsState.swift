@@ -138,6 +138,10 @@ final class CapsState {
             // 合成的 caps 按键事件不会改系统锁状态（实测 toggled=0），只有 HID 直设有效
             let on = !HIDCapsLock.shared.isLocked
             _ = CapsState.setLocked(on, reason: "tap")
+            let ime = InputSource.currentName() ?? InputSource.currentSnapshot()
+            // 主行是输入法，副行是刚切到的状态
+            StatusToast.shared.show(ime, detail: on ? "CAPS 开" : "CAPS 关",
+                                    ms: Config.shared.capsToastMs)
             return
         }
         ActionRunner.run(action)
