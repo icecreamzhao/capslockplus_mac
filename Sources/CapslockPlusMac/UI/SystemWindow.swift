@@ -400,7 +400,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         deviceMenuOpen = false
         if deviceMenuNeedsRebuild {
             deviceMenuNeedsRebuild = false
-            rebuildDeviceMenu(cachedDevices)
+            // 必须异步：AppKit 是先调 menuDidClose、**之后**才把用户点击的 action 派发过来，
+            // 派发时读的是 popup 的"当前选中项"。如果在这里同步重建并调用
+            // selectCurrentInDeviceMenu()，选中项会按还没更新的模式重置成本机，
+            // 于是用户点的 ubuntu 被覆盖成本机（日志实证：changed target=__local__ 出现在 rebuild 之后）。
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.rebuildDeviceMenu(self.cachedDevices)
+            }
         }
     }
 
