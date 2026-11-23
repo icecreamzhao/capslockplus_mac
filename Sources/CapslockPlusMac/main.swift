@@ -2,6 +2,11 @@ import Foundation
 import AppKit
 import AVFoundation
 
+// 遥测子命令必须先于 NSApplication / DebugCLI 处理：daemon 模式不加载 UI 和配置。
+if let code = TelemetryCLI.run() {
+    exit(code)
+}
+
 // 所有 --flag 子命令都在 DebugCLI 里处理并返回退出码；返回 nil 才继续启动 App。
 if let code = DebugCLI.run() {
     exit(code)
