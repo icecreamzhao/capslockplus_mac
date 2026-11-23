@@ -294,6 +294,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.makeKeyAndOrderFront(nil)
         layoutNameColumn()
 
+        // 窗口一出现就拉一次设备列表：否则下拉框里只有"记住的那台 · 连接中"这个占位项，
+        // 要等到用户展开菜单才会变成真实的 last_seen。deviceRequestInFlight 已防重复。
+        loadDevices()
+
         if remoteHostname != nil {
             startRemoteTimer()
             fetchRemote()
