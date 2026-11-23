@@ -21,6 +21,8 @@ final class StatusToast {
     private var panel: NSPanel?
     private var label: NSTextField?
     private var hideWork: DispatchWorkItem?
+    /// 每次 show/dismiss 都自增，用来让已经起跑的淡出回调失效
+    private var generation = 0
 
     /// 尺寸集中在这里：自检也用同一份，改字体大小不会让断言悄悄失配
     enum Metrics {
@@ -47,6 +49,7 @@ final class StatusToast {
         guard ms > 0, !text.isEmpty else { return }
 
         // 连按长按时复用同一块 HUD，只换文字、重置计时，不闪两个窗口
+        generation &+= 1
         hideWork?.cancel()
 
         let body = detail.map { "\(text)　·　\($0)" } ?? text
@@ -59,7 +62,10 @@ final class StatusToast {
         label?.stringValue = body
         panel.setFrame(frame, display: true)
         layout(panel: panel, width: frame.width)
-        panel.alphaValue = 0
+        // 正在淡出时 panel 还是可见的：保持当前 alpha 直接淡入，否则会闪一下
+        if !panel.isVisible {
+            panel.alphaValue = 0
+        }
         panel.orderFrontRegardless()
 
         NSAnimationContext.runAnimationGroup { ctx in
@@ -75,13 +81,30 @@ final class StatusToast {
     }
 
     func dismiss() {
+        generation &+= 1
+        let gen = generation
         guard let panel = panel, panel.isVisible else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.18
             panel.animator().alphaValue = 0
-        } completionHandler: {
+        } completionHandler: { [weak self] in
+            // 淡出期间又来了新的 show：这次回调已经过期，不能再关 panel
+            guard self?.generation == gen else { return }
             panel.orderOut(nil)
         }
+    }
+
+    // MARK: - 自检
+
+    /// 供 CLI 自检判断 HUD 是否还留在屏幕上
+    var debugIsVisible: Bool { panel?.isVisible ?? false }
+
+    /// 供 CLI 自检重复跑：关掉 panel 并清掉计时/失效标记
+    func debugReset() {
+        hideWork?.cancel()
+        hideWork = nil
+        generation = 0
+        panel?.orderOut(nil)
     }
 
     // MARK: - 布局（纯函数，自检里断言不会跑到屏幕外）

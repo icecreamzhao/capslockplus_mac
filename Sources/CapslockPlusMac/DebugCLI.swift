@@ -324,6 +324,21 @@ enum DebugCLI {
             return 0
         }
 
+        if CommandLine.arguments.contains("--toast-rapid-test") {
+            NSApplication.shared.setActivationPolicy(.accessory)
+            StatusToast.shared.debugReset()
+            // A 的 300ms 计时先到，B 在旧淡出跑完之前顶上来；
+            // 若淡出回调没失效，它会把 B 一起关掉。
+            StatusToast.shared.show("A", detail: nil, ms: 300)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+            StatusToast.shared.show("B", detail: "CAPS 开", ms: 800)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            let visible = StatusToast.shared.debugIsVisible
+            StatusToast.shared.debugReset()
+            print("toast-rapid-test " + (visible ? "ok visible=true" : "FAIL visible=false"))
+            return visible ? 0 : 1
+        }
+
         if CommandLine.arguments.contains("--panel-clamp-selftest") {
             let delegate = PanelClampSelfTestDelegate()
             NSApplication.shared.delegate = delegate
