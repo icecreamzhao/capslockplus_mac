@@ -13,6 +13,15 @@ enum DebugCLI {
             return RootProbe.runAgent(directory: CommandLine.arguments[index + 1])
         }
 
+        // 远端诊断：打印 base、设备列表、进程列表和第一条实例详情
+        if let index = CommandLine.arguments.firstIndex(of: "--remote-probe") {
+            guard index + 1 < CommandLine.arguments.count else {
+                print("usage: --remote-probe <hostname>")
+                exit(1)
+            }
+            runRemoteProbe(hostname: CommandLine.arguments[index + 1])
+        }
+
         // 子命令也读真实配置：否则 Config.shared 只有代码里的默认值，
         // 看起来"配置改了不生效"（实际是这条进程根本没加载 keymap.json）。
         Config.shared.loadOrCreate()
@@ -402,6 +411,71 @@ enum DebugCLI {
 
         return nil
     }
+}
+
+/// `--remote-probe` 的主流程。成功/失败都直接 exit，避免回到 App 启动流程。
+private func runRemoteProbe(hostname: String) -> Never {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+    func fail(_ step: String, _ error: Error) -> Never {
+        print("\(step) failed: \(RemoteClient.summary(of: error))")
+        exit(1)
+    }
+
+    print("base: \(RemoteClient.base)")
+
+    let devices: [RemoteDevice]
+    switch remoteProbeWait({ RemoteClient.shared.fetchDevices(completion: $0) }) {
+    case .success(let list): devices = list
+    case .failure(let error): fail("/v1/devices", error)
+    }
+    print("devices: \(devices.count)")
+    for device in devices {
+        let lastSeen = device.lastSeen.map { formatter.string(from: $0) } ?? "-"
+        print("  \(device.hostname)  last_seen=\(lastSeen)  instance_count=\(device.instanceCount)")
+    }
+
+    let processes: [RemoteProcess]
+    switch remoteProbeWait({ RemoteClient.shared.fetchProcesses(hostname: hostname, limit: 500, completion: $0) }) {
+    case .success(let list): processes = list
+    case .failure(let error): fail("/v1/devices/\(hostname)/processes", error)
+    }
+    print("processes: \(processes.count)")
+    for process in processes.prefix(3) {
+        print("  name=\(process.name) pid=\(process.pid) cpu=\(String(format: "%.1f", process.cpu))"
+              + " rss=\(process.rss) instance_id=\(process.instanceID)")
+    }
+
+    guard let first = processes.first else {
+        print("fetchInstance failed: 进程列表为空，没有 instance_id")
+        exit(1)
+    }
+
+    let detail: RemoteInstanceDetail
+    switch remoteProbeWait({ RemoteClient.shared.fetchInstance(id: first.instanceID, completion: $0) }) {
+    case .success(let value): detail = value
+    case .failure(let error): fail("/v1/instances/\(first.instanceID)", error)
+    }
+
+    print("instance: \(first.instanceID)")
+    for field in detail.makeProcessDetail().fields {
+        let value = field.value.count > 120 ? String(field.value.prefix(120)) + "…" : field.value
+        print("\(field.label): \(value)")
+    }
+    exit(0)
+}
+
+/// RemoteClient 的回调固定回主队列，CLI 里靠泵 RunLoop 等结果，不能直接卡信号量。
+private func remoteProbeWait<T>(timeout: TimeInterval = 8,
+                                _ start: (@escaping (Result<T, Error>) -> Void) -> Void) -> Result<T, Error> {
+    var result: Result<T, Error>?
+    start { result = $0 }
+    let deadline = Date().addingTimeInterval(timeout)
+    while result == nil, Date() < deadline {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
+    }
+    return result ?? .failure(URLError(.timedOut))
 }
 
 final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
