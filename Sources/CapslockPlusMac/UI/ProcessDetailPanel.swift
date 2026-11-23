@@ -21,6 +21,10 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     /// （root 代理也拿不到这个数，所以不能写进 inspect）
     var extraFieldsProvider: ((pid_t) -> [ProcessDetail.Field])?
 
+    /// 非空时用它代替 ProcessInspector 刷新（远端设备）。
+    /// 不加这个 hook，远端详情的 2 秒刷新会去读本机同 pid 的进程，显示成完全不相干的程序。
+    var refreshProvider: (() -> ProcessDetail?)?
+
     private override init() {
         super.init()
         panel.title = "进程详情"
@@ -70,7 +74,8 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     // MARK: - 展示
 
     func show(_ detail: ProcessDetail) {
-        let detail = augment(detail)
+        // 远端详情自带累计流量字段，不能再套本机 nettop 的累计值
+        let detail = refreshProvider == nil ? augment(detail) : detail
         self.detail = detail
         panel.title = "进程详情 · \(detail.fields.first?.value ?? "pid \(detail.pid)")"
         render()
@@ -102,13 +107,22 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
     private func refreshTick() {
         guard let pid = detail?.pid, panel.isVisible else { return }
         tick += 1
+
+        // 远端详情：用外部 provider 刷新，绝不回落到本机 ProcessInspector / RootProbe
+        if let provider = refreshProvider {
+            if let fresh = provider() {
+                apply(fresh, allowRebuild: false)
+            }
+            return
+        }
+
         apply(augment(ProcessInspector.inspect(pid: pid)), allowRebuild: false)
 
         guard tick % 3 == 0, SystemMonitor.shared.rootActive else { return }
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let detail = RootProbe.detailFromAgent(pid: pid) else { return }
             DispatchQueue.main.async {
-                guard let self else { return }
+                guard let self, self.refreshProvider == nil else { return }
                 self.apply(self.augment(detail), allowRebuild: true)
             }
         }
@@ -234,6 +248,7 @@ final class ProcessDetailPanel: NSObject, NSWindowDelegate {
 
     func hide() {
         stopUpdating()
+        refreshProvider = nil
         panel.orderOut(nil)
     }
 

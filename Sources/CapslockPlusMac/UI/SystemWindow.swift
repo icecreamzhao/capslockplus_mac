@@ -4,8 +4,16 @@ import AppKit
 ///
 /// 对齐 Stats 的 CPU 弹窗 / 系统活动监视器的用法：先看总量，再定位"谁在吃 CPU / 内存"。
 /// 窗口不自己采样，只订阅 `SystemMonitor` 的结果，避免多一份开销。
-final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataSource, NSTableViewDelegate,
+                                    NSMenuDelegate {
     static let shared = SystemWindowController()
+
+    private static let localDeviceID = "__local__"
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 
     private let panel: SystemPanel
     private var cpuBar = NSProgressIndicator()
@@ -15,6 +23,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var summaryLabel = NSTextField(labelWithString: "")
     private var networkLabel = NSTextField(labelWithString: "")
     private var footerLabel = NSTextField(labelWithString: "")
+    private var devicePopUp = NSPopUpButton()
     private var table = NSTableView()
     private var scrollView = NSScrollView()
     private var rootButton = NSButton()
@@ -33,6 +42,31 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var displayRows: [ProcessSample] = []
     private var displayRowsDirty = true
 
+    // MARK: 远端设备状态
+
+    /// nil = 本机；非 nil = 远端 hostname
+    private var remoteHostname: String?
+    private var cachedDevices: [RemoteDevice] = []
+    private var remoteRows: [ProcessSample] = []
+    /// pid -> instance_id，远端 ⓘ 用
+    private var instanceByPid: [pid_t: Int64] = [:]
+    private var remoteLastUpdate: Date?
+    private var remoteErrorText: String?
+    private var remoteTimer: Timer?
+    private var remoteGeneration = 0
+    private var remoteRequestInFlight = false
+    private var deviceRequestInFlight = false
+    private var deviceMenuOpen = false
+    private var deviceMenuNeedsRebuild = false
+
+    private var remoteDetailInstanceID: Int64 = 0
+    private var remoteDetailPid: pid_t = 0
+    private var remoteDetailCache: RemoteInstanceDetail?
+    private var remoteDetailFallback: ProcessDetail?
+    private var remoteDetailLastFetch = Date.distantPast
+    private var remoteDetailLoading = false
+    private var remoteDetailSerial = 0
+
     private override init() {
         panel = SystemPanel(contentRect: NSRect(x: 0, y: 0, width: 690, height: 560),
                             styleMask: [.titled, .closable, .resizable, .utilityWindow],
@@ -48,6 +82,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         panel.isReleasedWhenClosed = false
         panel.delegate = self
         panel.onCancel = { [weak self] in self?.hide() }
+        if let saved = UserDefaults.standard.string(forKey: "systemWindow.device"),
+           !saved.isEmpty, saved != Self.localDeviceID {
+            remoteHostname = saved
+        }
         buildContent()
         // 网络累计收发来自 nettop 的进程计数，注入到详情面板
         ProcessDetailPanel.shared.extraFieldsProvider = { pid in
@@ -97,7 +135,20 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         networkLabel.autoresizingMask = [.width, .minYMargin]
         content.addSubview(networkLabel)
 
-        let separator = NSBox(frame: NSRect(x: padding, y: height - 116, width: width, height: 1))
+        // 设备下拉框单独占一行，放在网络行下方、分隔线上方，
+        // 不压 CPU/内存 条，也不压网络行。
+        devicePopUp = NSPopUpButton(frame: NSRect(x: padding, y: height - 142, width: 150, height: 22),
+                                    pullsDown: false)
+        devicePopUp.controlSize = .small
+        devicePopUp.font = .systemFont(ofSize: 11)
+        devicePopUp.target = self
+        devicePopUp.action = #selector(devicePopUpChanged(_:))
+        devicePopUp.autoresizingMask = [.minYMargin]
+        devicePopUp.menu?.delegate = self
+        devicePopUp.menu?.autoenablesItems = false
+        content.addSubview(devicePopUp)
+
+        let separator = NSBox(frame: NSRect(x: padding, y: height - 152, width: width, height: 1))
         separator.boxType = .separator
         separator.autoresizingMask = [.width, .minYMargin]
         content.addSubview(separator)
@@ -136,7 +187,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         addColumn("上传", key: "up", width: 58, alignment: .right)
         addColumn("PID", key: "pid", width: 54, alignment: .right)
 
-        scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 184))
+        scrollView = NSScrollView(frame: NSRect(x: padding, y: 58, width: width, height: height - 220))
         scrollView.documentView = table
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
@@ -164,6 +215,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         footerLabel.frame = NSRect(x: padding, y: 12, width: width, height: 14)
         footerLabel.autoresizingMask = [.width, .maxYMargin]   // 底部锚定
         content.addSubview(footerLabel)
+
+        rebuildDeviceMenu(cachedDevices)
     }
 
     /// 把表格剩余宽度都给"进程"列（ⓘ 与其余列定宽）
@@ -218,27 +271,40 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     func show() {
-        // 关掉菜单栏读数的人也可能会开这个窗口，所以按需拉起采样
-        if !SystemMonitor.shared.isRunning {
-            SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
-        }
         NSApp.activate(ignoringOtherApps: true)
-        RootProbe.setViewing(true)
         positionIfNeeded()
-        refresh()
+
+        if remoteHostname == nil {
+            // 关掉菜单栏读数的人也可能会开这个窗口，所以按需拉起采样
+            if !SystemMonitor.shared.isRunning {
+                SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
+            }
+            RootProbe.setViewing(true)
+            installLocalObserver()
+            refresh()
+        } else {
+            // 远端模式：不启动本地采样，也不拉起 root 代理
+            removeLocalObserver()
+            RootProbe.setViewing(false)
+            rootButton.isEnabled = false
+            updateRemoteChrome()
+        }
+
         panel.makeKeyAndOrderFront(nil)
         layoutNameColumn()
-        if observer == nil {
-            observer = NotificationCenter.default.addObserver(
-                forName: SystemMonitor.didUpdate, object: nil, queue: .main) { [weak self] _ in
-                self?.refresh()
-            }
+
+        if remoteHostname != nil {
+            startRemoteTimer()
+            fetchRemote()
         }
     }
 
     func hide() {
-        if let observer { NotificationCenter.default.removeObserver(observer) }
-        observer = nil
+        removeLocalObserver()
+        remoteTimer?.invalidate()
+        remoteTimer = nil
+        remoteGeneration &+= 1
+        remoteRequestInFlight = false
         RootProbe.setViewing(false)
         UserDefaults.standard.set(NSStringFromPoint(panel.frame.origin), forKey: "systemWindow.origin")
         panel.orderOut(nil)
@@ -259,9 +325,368 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
                                      y: visible.maxY - panel.frame.height - 24))
     }
 
+    private func installLocalObserver() {
+        guard observer == nil else { return }
+        observer = NotificationCenter.default.addObserver(
+            forName: SystemMonitor.didUpdate, object: nil, queue: .main) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    private func removeLocalObserver() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
+    }
+
+    // MARK: - 设备下拉框
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard menu === devicePopUp.menu else { return }
+        // 每次展开都按当前时间重算「上次上报距今」
+        rebuildDeviceMenu(cachedDevices)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === devicePopUp.menu else { return }
+        deviceMenuOpen = true
+        deviceMenuNeedsRebuild = false
+        // 每次展开都异步刷一次设备列表（不做常驻轮询）
+        loadDevices()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        guard menu === devicePopUp.menu else { return }
+        deviceMenuOpen = false
+        if deviceMenuNeedsRebuild {
+            deviceMenuNeedsRebuild = false
+            rebuildDeviceMenu(cachedDevices)
+        }
+    }
+
+    @objc private func devicePopUpChanged(_ sender: NSPopUpButton) {
+        guard let target = sender.selectedItem?.representedObject as? String else { return }
+        if target == Self.localDeviceID {
+            switchToLocal()
+        } else {
+            switchToRemote(hostname: target)
+        }
+    }
+
+    @objc private func editServer() {
+        let alert = NSAlert()
+        alert.messageText = "服务器地址"
+        alert.informativeText = "capsql-api 的 base URL，例如 \(RemoteClient.defaultBase)"
+        alert.alertStyle = .informational
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.stringValue = RemoteClient.base
+        field.placeholderString = RemoteClient.defaultBase
+        alert.accessoryView = field
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        alert.window.initialFirstResponder = field
+
+        let response = alert.runModal()
+        defer { selectCurrentInDeviceMenu() }
+        guard response == .alertFirstButtonReturn else { return }
+
+        let value = RemoteClient.normalizedBase(field.stringValue)
+        let previous = RemoteClient.base
+        UserDefaults.standard.set(value, forKey: "telemetry.serverURL")
+        guard RemoteClient.base != previous else {
+            loadDevices()
+            return
+        }
+
+        cachedDevices = []
+        rebuildDeviceMenu([])
+        devicePopUp.toolTip = "服务器 \(RemoteClient.base)"
+        loadDevices()
+
+        if remoteHostname != nil {
+            remoteGeneration &+= 1
+            remoteRequestInFlight = false
+            remoteErrorText = nil
+            remoteLastUpdate = nil
+            resetRemoteDetail(hidePanel: true)
+            displayRowsDirty = true
+            _ = rows()
+            table.reloadData()
+            updateRemoteChrome()
+            fetchRemote()
+        }
+    }
+
+    private func loadDevices() {
+        guard !deviceRequestInFlight else { return }
+        deviceRequestInFlight = true
+        RemoteClient.shared.fetchDevices { [weak self] result in
+            guard let self else { return }
+            self.deviceRequestInFlight = false
+            switch result {
+            case .success(let devices):
+                self.cachedDevices = devices
+                self.devicePopUp.toolTip = "服务器 \(RemoteClient.base)"
+                if self.deviceMenuOpen {
+                    // 菜单展开中不整表替换，避免把用户正在点的菜单掀掉；
+                    // 只补新增项、更新已有项，关闭后再整理一遍。
+                    self.updateDeviceMenuInPlace(devices)
+                    self.deviceMenuNeedsRebuild = true
+                } else {
+                    self.rebuildDeviceMenu(devices)
+                }
+            case .failure(let error):
+                self.devicePopUp.toolTip = "无法获取设备列表：\(RemoteClient.summary(of: error))"
+            }
+        }
+    }
+
+    private func rebuildDeviceMenu(_ devices: [RemoteDevice]) {
+        guard let menu = devicePopUp.menu else { return }
+        menu.removeAllItems()
+
+        let local = NSMenuItem(title: "本机", action: nil, keyEquivalent: "")
+        local.representedObject = Self.localDeviceID
+        menu.addItem(local)
+
+        var seen = Set<String>()
+        for device in devices where !device.hostname.isEmpty && !seen.contains(device.hostname) {
+            seen.insert(device.hostname)
+            menu.addItem(makeDeviceItem(hostname: device.hostname, device: device))
+        }
+
+        // 记住的远端还没出现在列表里（服务器没连上/设备离线）时留一个占位项，
+        // 否则下拉框会显示成本机，和实际模式不符。
+        if let host = remoteHostname, !seen.contains(host) {
+            menu.addItem(makeDeviceItem(hostname: host, device: nil))
+        }
+
+        menu.addItem(.separator())
+        let settings = NSMenuItem(title: "设置服务器…", action: #selector(editServer), keyEquivalent: "")
+        settings.target = self
+        menu.addItem(settings)
+        selectCurrentInDeviceMenu()
+    }
+
+    private func updateDeviceMenuInPlace(_ devices: [RemoteDevice]) {
+        guard let menu = devicePopUp.menu else { return }
+        var byHost: [String: RemoteDevice] = [:]
+        for device in devices where !device.hostname.isEmpty {
+            byHost[device.hostname] = device
+        }
+
+        var existing = Set<String>()
+        for item in menu.items {
+            guard let host = item.representedObject as? String, host != Self.localDeviceID else { continue }
+            existing.insert(host)
+            styleDeviceItem(item, hostname: host, device: byHost[host])
+        }
+
+        var insertAt = menu.items.firstIndex(where: { $0.isSeparatorItem }) ?? menu.items.count
+        for device in devices where !device.hostname.isEmpty && !existing.contains(device.hostname) {
+            menu.insertItem(makeDeviceItem(hostname: device.hostname, device: device), at: insertAt)
+            insertAt += 1
+        }
+        selectCurrentInDeviceMenu()
+        menu.update()   // 菜单还开着时让新条目立刻重排显示
+    }
+
+    private func makeDeviceItem(hostname: String, device: RemoteDevice?) -> NSMenuItem {
+        let item = NSMenuItem(title: hostname, action: nil, keyEquivalent: "")
+        styleDeviceItem(item, hostname: hostname, device: device)
+        return item
+    }
+
+    private func styleDeviceItem(_ item: NSMenuItem, hostname: String, device: RemoteDevice?) {
+        var text = hostname
+        var color = NSColor.labelColor
+        if let lastSeen = device?.lastSeen {
+            let age = Date().timeIntervalSince(lastSeen)
+            text += " · \(RemoteClient.compactAge(age))"
+            if age > 600 { color = .disabledControlTextColor }
+        } else if device == nil {
+            text += " · 连接中"
+            color = .secondaryLabelColor
+        }
+        item.title = text
+        item.representedObject = hostname
+        item.attributedTitle = NSAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: color,
+        ])
+    }
+
+    private func selectCurrentInDeviceMenu() {
+        guard let menu = devicePopUp.menu else { return }
+        let target = remoteHostname ?? Self.localDeviceID
+        if let item = menu.items.first(where: { ($0.representedObject as? String) == target }) {
+            if let index = menu.items.firstIndex(of: item) {
+                devicePopUp.selectItem(at: index)
+            }
+        } else if !menu.items.isEmpty {
+            devicePopUp.selectItem(at: 0)
+        }
+    }
+
+    // MARK: - 本机 / 远端切换
+
+    private func switchToLocal() {
+        UserDefaults.standard.set(Self.localDeviceID, forKey: "systemWindow.device")
+        let wasRemote = remoteHostname != nil
+        remoteHostname = nil
+        remoteGeneration &+= 1
+        remoteTimer?.invalidate()
+        remoteTimer = nil
+        remoteRequestInFlight = false
+        remoteRows = []
+        instanceByPid = [:]
+        remoteLastUpdate = nil
+        remoteErrorText = nil
+        resetRemoteDetail(hidePanel: true)
+        displayRowsDirty = true
+        _ = rows()
+        table.reloadData()
+
+        summaryLabel.textColor = .secondaryLabelColor
+        rootButton.title = "显示系统进程…"
+        rootButton.isEnabled = !rootBusy
+
+        if panel.isVisible {
+            RootProbe.setViewing(true)
+            if !SystemMonitor.shared.isRunning {
+                SystemMonitor.shared.start(sampleMs: Config.shared.systemSampleMs)
+            }
+            installLocalObserver()
+            SystemMonitor.shared.sampleNow()
+            refresh()
+        } else if wasRemote {
+            RootProbe.setViewing(false)
+        }
+        selectCurrentInDeviceMenu()
+    }
+
+    private func switchToRemote(hostname: String) {
+        let changed = remoteHostname != hostname
+        if changed {
+            resetRemoteDetail(hidePanel: true)
+            remoteGeneration &+= 1
+            remoteRequestInFlight = false
+            remoteRows = []
+            instanceByPid = [:]
+            remoteLastUpdate = nil
+            remoteErrorText = nil
+            displayRowsDirty = true
+            _ = rows()
+            table.reloadData()
+        }
+
+        remoteHostname = hostname
+        UserDefaults.standard.set(hostname, forKey: "systemWindow.device")
+        removeLocalObserver()
+        RootProbe.setViewing(false)
+        rootButton.title = "显示系统进程…"
+        rootButton.isEnabled = false
+        updateRemoteChrome()
+
+        if panel.isVisible {
+            startRemoteTimer()
+            fetchRemote()
+        }
+        selectCurrentInDeviceMenu()
+    }
+
+    // MARK: - 远端刷新
+
+    private func startRemoteTimer() {
+        remoteTimer?.invalidate()
+        guard remoteHostname != nil else { return }
+        let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+            self?.fetchRemote()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        remoteTimer = timer
+    }
+
+    private func fetchRemote() {
+        guard let host = remoteHostname, !remoteRequestInFlight else { return }
+        remoteRequestInFlight = true
+        let generation = remoteGeneration
+        let base = RemoteClient.base
+        RemoteClient.shared.fetchProcesses(hostname: host, limit: 500) { [weak self] result in
+            guard let self else { return }
+            self.remoteRequestInFlight = false
+            guard generation == self.remoteGeneration, self.remoteHostname == host else { return }
+
+            switch result {
+            case .success(let processes):
+                self.applyRemoteProcesses(processes)
+            case .failure(let error):
+                self.remoteErrorText = "无法连接 \(base)（\(RemoteClient.summary(of: error))）"
+                self.updateRemoteChrome()
+            }
+        }
+    }
+
+    private func applyRemoteProcesses(_ processes: [RemoteProcess]) {
+        let selectedPID = selectedSample()?.pid
+        remoteRows = processes.map { process in
+            ProcessSample(pid: process.pid, name: process.name, cpu: process.cpu,
+                          memory: process.rss, ports: process.ports, measurable: true,
+                          down: process.netRXRate, up: process.netTXRate)
+        }
+        var mapping: [pid_t: Int64] = [:]
+        for process in processes where process.instanceID != 0 {
+            mapping[process.pid] = process.instanceID
+        }
+        instanceByPid = mapping
+        remoteLastUpdate = Date()
+        remoteErrorText = nil
+
+        displayRowsDirty = true
+        _ = rows()
+        table.reloadData()
+        if let pid = selectedPID, let row = displayRows.firstIndex(where: { $0.pid == pid }) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        updateRemoteChrome()
+    }
+
+    private func updateRemoteChrome() {
+        guard let host = remoteHostname else { return }
+        if let error = remoteErrorText {
+            summaryLabel.stringValue = error
+            summaryLabel.textColor = .systemRed
+        } else if let updated = remoteLastUpdate {
+            summaryLabel.stringValue = "远程 \(host) · 更新于 \(Self.clockFormatter.string(from: updated))"
+                + " · \(remoteRows.count) 个进程"
+            summaryLabel.textColor = .secondaryLabelColor
+        } else {
+            summaryLabel.stringValue = "远程 \(host) · 正在连接…"
+            summaryLabel.textColor = .secondaryLabelColor
+        }
+
+        cpuBar.doubleValue = 0
+        memBar.doubleValue = 0
+        cpuLabel.stringValue = "CPU —"
+        memLabel.stringValue = "内存 —"
+        cpuLabel.toolTip = nil
+        memLabel.toolTip = nil
+
+        let down = remoteRows.reduce(0.0) { $0 + $1.down }
+        let up = remoteRows.reduce(0.0) { $0 + $1.up }
+        networkLabel.stringValue = "网络  Σ ↓\(SystemFormat.compactRate(down)) ↑\(SystemFormat.compactRate(up))"
+        networkLabel.toolTip = "\(host) 上全部进程的实时收发合计"
+
+        rootButton.title = "显示系统进程…"
+        rootButton.isEnabled = false
+        footerLabel.stringValue = "共 \(remoteRows.count) 个进程 · 远端每 5 秒刷新"
+    }
+
     // MARK: - 刷新
 
     private func refresh() {
+        guard remoteHostname == nil else { return }
+        summaryLabel.textColor = .secondaryLabelColor
         let snapshot = SystemMonitor.shared.snapshot
         cpuBar.doubleValue = snapshot.cpu
         memBar.doubleValue = snapshot.memPercent
@@ -348,7 +773,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     /// 按当前排序键排序，结果缓存起来；只有采样更新或改排序才重算
     private func rebuildRows() {
-        let list = SystemMonitor.shared.processes
+        let list = currentProcesses()
         switch sortKey {
         case "name":
             displayRows = list.sorted {
@@ -376,6 +801,10 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             displayRows = list.sorted { sortAscending ? $0.cpu < $1.cpu : $0.cpu > $1.cpu }
         }
         displayRowsDirty = false
+    }
+
+    private func currentProcesses() -> [ProcessSample] {
+        remoteHostname == nil ? SystemMonitor.shared.processes : remoteRows
     }
 
     private func rows() -> [ProcessSample] {
@@ -449,13 +878,122 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     /// （root 才能读到别人的启动时间/启动参数/工作目录）
     @objc private func showProcessDetail(_ sender: InfoButton) {
         let pid = sender.pid
+        if sender.instanceID != 0 {
+            showRemoteDetail(instanceID: sender.instanceID, pid: pid)
+            return
+        }
+        // 远端行缺 instance_id 时宁可报错，也不能回落到本机同 pid 的进程
+        if remoteHostname != nil {
+            showRemoteDetailMissing(pid: pid)
+            return
+        }
         guard pid > 0 else { return }
+        resetRemoteDetail(hidePanel: false)
         ProcessDetailPanel.shared.show(ProcessInspector.inspect(pid: pid))
         guard SystemMonitor.shared.rootActive else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             guard let detail = RootProbe.detailFromAgent(pid: pid) else { return }
-            DispatchQueue.main.async { ProcessDetailPanel.shared.update(detail) }
+            DispatchQueue.main.async { [weak self] in
+                // 等 root 回答期间可能已经切到远端设备，别把本机详情灌进远端面板
+                guard let self, self.remoteHostname == nil else { return }
+                ProcessDetailPanel.shared.update(detail)
+            }
         }
+    }
+
+    // MARK: - 远端详情
+
+    private func showRemoteDetail(instanceID: Int64, pid: pid_t) {
+        guard remoteHostname != nil else { return }
+        let name = remoteRows.first(where: { $0.pid == pid })?.name ?? "pid \(pid)"
+        let placeholder = ProcessDetail(pid: pid, fields: [
+            .init(label: "名称", value: name),
+            .init(label: "PID", value: "\(pid)"),
+            .init(label: "读取", value: "正在读取远端详情…"),
+        ])
+
+        remoteDetailInstanceID = instanceID
+        remoteDetailPid = pid
+        remoteDetailCache = nil
+        remoteDetailFallback = placeholder
+        remoteDetailLastFetch = .distantPast
+        remoteDetailLoading = false
+        remoteDetailSerial &+= 1
+
+        ProcessDetailPanel.shared.refreshProvider = { [weak self] in
+            guard let self else { return nil }
+            return self.remoteDetailProvider(instanceID: instanceID)
+        }
+        ProcessDetailPanel.shared.show(placeholder)
+        loadRemoteDetail(instanceID: instanceID, pid: pid, force: true)
+    }
+
+    private func showRemoteDetailMissing(pid: pid_t) {
+        let name = remoteRows.first(where: { $0.pid == pid })?.name ?? "pid \(pid)"
+        let detail = ProcessDetail(pid: pid, fields: [
+            .init(label: "名称", value: name),
+            .init(label: "PID", value: "\(pid)"),
+            .init(label: "读取失败", value: "这条远端记录缺少 instance_id，无法打开详情"),
+        ])
+        remoteDetailInstanceID = 0
+        remoteDetailPid = pid
+        remoteDetailCache = nil
+        remoteDetailFallback = detail
+        // 常驻 provider：即使没有 instance_id，也不能让面板回落去读本机 pid
+        ProcessDetailPanel.shared.refreshProvider = { detail }
+        ProcessDetailPanel.shared.show(detail)
+    }
+
+    /// 详情面板每 2 秒调用一次：只从远端缓存拼字段，永远不碰本机 ProcessInspector。
+    /// 缓存超过 5 秒就顺手再拉一次，保证 CPU/流量在面板开着时继续变。
+    private func remoteDetailProvider(instanceID: Int64) -> ProcessDetail? {
+        guard remoteDetailInstanceID == instanceID, remoteHostname != nil else { return nil }
+        loadRemoteDetail(instanceID: instanceID, pid: remoteDetailPid, force: false)
+        return remoteDetailCache?.makeProcessDetail() ?? remoteDetailFallback
+    }
+
+    private func loadRemoteDetail(instanceID: Int64, pid: pid_t, force: Bool) {
+        guard !remoteDetailLoading else { return }
+        if !force, Date().timeIntervalSince(remoteDetailLastFetch) < 5 { return }
+        remoteDetailLoading = true
+        remoteDetailLastFetch = Date()
+        remoteDetailSerial &+= 1
+        let serial = remoteDetailSerial
+
+        RemoteClient.shared.fetchInstance(id: instanceID) { [weak self] result in
+            guard let self else { return }
+            guard self.remoteDetailSerial == serial else { return }
+            self.remoteDetailLoading = false
+            guard self.remoteDetailInstanceID == instanceID, self.remoteHostname != nil else { return }
+            guard ProcessDetailPanel.shared.refreshProvider != nil else { return }
+
+            switch result {
+            case .success(let detail):
+                self.remoteDetailCache = detail
+                ProcessDetailPanel.shared.update(detail.makeProcessDetail())
+            case .failure(let error):
+                let name = self.remoteRows.first(where: { $0.pid == pid })?.name ?? "pid \(pid)"
+                let fallback = ProcessDetail(pid: pid, fields: [
+                    .init(label: "名称", value: name),
+                    .init(label: "PID", value: "\(pid)"),
+                    .init(label: "读取失败", value: RemoteClient.summary(of: error)),
+                ])
+                self.remoteDetailFallback = fallback
+                ProcessDetailPanel.shared.update(fallback)
+            }
+        }
+    }
+
+    private func resetRemoteDetail(hidePanel: Bool) {
+        if hidePanel { ProcessDetailPanel.shared.hide() }
+        ProcessDetailPanel.shared.refreshProvider = nil
+        remoteDetailInstanceID = 0
+        remoteDetailPid = 0
+        remoteDetailCache = nil
+        remoteDetailFallback = nil
+        remoteDetailLastFetch = .distantPast
+        remoteDetailLoading = false
+        remoteDetailSerial &+= 1
     }
 
     // MARK: - root 采样按钮
@@ -464,6 +1002,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private var rootBusy = false
 
     @objc private func toggleRootProbe() {
+        guard remoteHostname == nil else { return }
         if SystemMonitor.shared.rootActive {
             RootProbe.stop()
             refresh()
@@ -525,6 +1064,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
                 button.contentTintColor = .secondaryLabelColor
             }
             button.pid = list[row].pid
+            button.instanceID = instanceByPid[list[row].pid] ?? 0
             button.toolTip = "查看 \(list[row].name) 的详情"
             return button
         }
@@ -613,6 +1153,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 /// 表格里的 ⓘ 按钮：记住自己那一行是哪个 pid（cell 复用，每次都要重置）
 final class InfoButton: NSButton {
     var pid: pid_t = 0
+    /// 远端设备进程的 instance_id；0 表示本机
+    var instanceID: Int64 = 0
 }
 
 /// Esc 关闭。LSUIElement 应用要能成 key window 才能收到 Esc。
