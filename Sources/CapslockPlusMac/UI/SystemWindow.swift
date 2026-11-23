@@ -690,7 +690,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     private func startRemoteTimer() {
         remoteTimer?.invalidate()
         guard remoteHostname != nil else { return }
-        let timer = Timer(timeInterval: 5.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             self?.fetchRemote()
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -770,7 +770,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
         rootButton.title = "显示系统进程…"
         rootButton.isEnabled = false
-        footerLabel.stringValue = "共 \(remoteRows.count) 个进程 · 远端每 5 秒刷新"
+        footerLabel.stringValue = "共 \(remoteRows.count) 个进程 · 远端每 2 秒刷新"
     }
 
     // MARK: - 刷新
@@ -1043,7 +1043,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     /// 详情面板每 2 秒调用一次：只从远端缓存拼字段，永远不碰本机 ProcessInspector。
-    /// 缓存超过 5 秒就顺手再拉一次，保证 CPU/流量在面板开着时继续变。
+    /// 缓存超过 2 秒就顺手再拉一次，保证 CPU/流量在面板开着时继续变。
     private func remoteDetailProvider(instanceID: Int64) -> ProcessDetail? {
         guard remoteDetailInstanceID == instanceID, remoteHostname != nil else { return nil }
         loadRemoteDetail(instanceID: instanceID, pid: remoteDetailPid, force: false)
@@ -1052,7 +1052,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     private func loadRemoteDetail(instanceID: Int64, pid: pid_t, force: Bool) {
         guard !remoteDetailLoading else { return }
-        if !force, Date().timeIntervalSince(remoteDetailLastFetch) < 5 { return }
+        if !force, Date().timeIntervalSince(remoteDetailLastFetch) < 2 { return }
         remoteDetailLoading = true
         remoteDetailLastFetch = Date()
         remoteDetailSerial &+= 1

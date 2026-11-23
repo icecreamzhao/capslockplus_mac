@@ -234,7 +234,7 @@ final class TelemetryCollector {
 }
 
 final class TelemetryAgent {
-    private static let tickInterval: TimeInterval = 60
+    private static let tickInterval: TimeInterval = 2
     private static let batchLimit = 5000
     private static let queueByteLimit = 200 * 1024 * 1024
     private static let queueAgeLimit: TimeInterval = 7 * 24 * 60 * 60
