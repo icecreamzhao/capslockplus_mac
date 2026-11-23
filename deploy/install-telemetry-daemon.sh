@@ -20,6 +20,13 @@ if [[ ! -x "$APP/Contents/MacOS/CapslockPlusMac" ]]; then
     echo "找不到可执行文件：$APP/Contents/MacOS/CapslockPlusMac" >&2
     exit 1
 fi
+# 防呆：目标二进制必须认识 --telemetry-agent，否则 daemon 会以 root 启动一个正常的
+# 图形界面 app（旧版本就是这样），后果是 root 桌面进程 + 无效上报。
+if ! "$APP/Contents/MacOS/CapslockPlusMac" --telemetry-selftest >/dev/null 2>&1; then
+    echo "该 app 不支持遥测（--telemetry-selftest 失败）：$APP" >&2
+    echo "请先换成带 Telemetry/ 的构建（build-mac.sh 产出的 dist/CapslockPlusMac.app）" >&2
+    exit 1
+fi
 if [[ -z "$TOKEN" ]]; then
     echo "缺少 TOKEN。用法：sudo TOKEN=<44 字符 token> $0" >&2
     exit 1
@@ -46,7 +53,14 @@ chown root:wheel "$tmp_config"
 mv -f "$tmp_config" "$CONFIG"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-install -m 644 -o root -g wheel "$SCRIPT_DIR/$LABEL.plist" "$PLIST"
+# 模板里的 ProgramArguments 写的是 /Applications/CapslockPlusMac.app；
+# 若调用方用 APP= 指向别处（比如仓库里的 dist/），必须把路径替换掉，
+# 否则 daemon 会去启动那个路径下的（可能是旧版、没有 --telemetry-agent 的）app。
+tmp_plist="$(mktemp)"
+sed "s|/Applications/CapslockPlusMac.app|$APP|g" "$SCRIPT_DIR/$LABEL.plist" > "$tmp_plist"
+install -m 644 -o root -g wheel "$tmp_plist" "$PLIST"
+rm -f "$tmp_plist"
+grep -q "$APP" "$PLIST" || { echo "plist 路径替换失败：$PLIST" >&2; exit 1; }
 
 launchctl bootout "system/$LABEL" 2>/dev/null || true
 launchctl enable "system/$LABEL" 2>/dev/null || true
