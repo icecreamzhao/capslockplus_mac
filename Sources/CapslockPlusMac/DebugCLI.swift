@@ -22,6 +22,15 @@ enum DebugCLI {
             runRemoteProbe(hostname: CommandLine.arguments[index + 1])
         }
 
+        // 工单 06 诊断：复现前清空设备菜单日志，复现后直接看新增内容。
+        // 需要配合 `defaults write <bundle-id> debugDeviceMenu -bool true` 才能写日志。
+        if CommandLine.arguments.contains("--device-menu-log-reset") {
+            let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Logs/CapslockPlusDevice.log")
+            try? FileManager.default.removeItem(at: url)
+            print("device log reset: \(url.path)")
+            exit(0)
+        }
+
         // 子命令也读真实配置：否则 Config.shared 只有代码里的默认值，
         // 看起来"配置改了不生效"（实际是这条进程根本没加载 keymap.json）。
         Config.shared.loadOrCreate()

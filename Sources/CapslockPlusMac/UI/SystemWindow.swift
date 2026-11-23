@@ -272,6 +272,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     func show() {
+        debugLog("show remote=\(remoteHostname ?? "local") saved=\(UserDefaults.standard.string(forKey: "systemWindow.device") ?? "nil")")
         NSApp.activate(ignoringOtherApps: true)
         positionIfNeeded()
 
@@ -305,6 +306,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     func hide() {
+        debugLog("hide remote=\(remoteHostname ?? "local")")
         removeLocalObserver()
         remoteTimer?.invalidate()
         remoteTimer = nil
@@ -345,14 +347,47 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     // MARK: - 设备下拉框
 
+    /// 临时诊断（工单 06）：定位"远端模式被打回本机"。
+    /// 只有 `defaults write <bundle-id> debugDeviceMenu -bool true` 时才写；
+    /// 文件不存在就创建，写失败静默忽略，绝不影响界面。
+    private func debugLog(_ message: String, stack: Bool = false) {
+        guard UserDefaults.standard.bool(forKey: "debugDeviceMenu") else { return }
+        var text = "[\(Date())] \(message)\n"
+        if stack {
+            for symbol in Thread.callStackSymbols.prefix(8) {
+                text += "    \(symbol)\n"
+            }
+        }
+        let url = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Logs/CapslockPlusDevice.log")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(text.data(using: .utf8) ?? Data())
+            try? handle.close()
+        } else {
+            if let data = text.data(using: .utf8) {
+                try? data.write(to: url)
+            }
+        }
+    }
+
+    /// 唯一写 `systemWindow.device` 的入口：先记一条带调用栈的日志再落盘。
+    private func storeDevice(_ value: String) {
+        debugLog("write device=\(value)", stack: true)
+        UserDefaults.standard.set(value, forKey: "systemWindow.device")
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard menu === devicePopUp.menu else { return }
-        // 每次展开都按当前时间重算「上次上报距今」
-        rebuildDeviceMenu(cachedDevices)
+        // 每次展开都按当前时间重算「上次上报距今」。
+        // 这里**不能**整表重建：菜单正在展开时把 item 全删了重建，AppKit 对 item 的身份/索引
+        // 记录会错位，点击可能被解析成第 0 项（本机），表现为"选了 ubuntu 又跳回本机"。
+        // 就地更新标题/颜色，item 身份保持稳定。
+        updateDeviceMenuInPlace(cachedDevices)
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         guard menu === devicePopUp.menu else { return }
+        debugLog("menuWillOpen")
         deviceMenuOpen = true
         deviceMenuNeedsRebuild = false
         // 每次展开都异步刷一次设备列表（不做常驻轮询）
@@ -361,6 +396,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
 
     func menuDidClose(_ menu: NSMenu) {
         guard menu === devicePopUp.menu else { return }
+        debugLog("menuDidClose needsRebuild=\(deviceMenuNeedsRebuild)")
         deviceMenuOpen = false
         if deviceMenuNeedsRebuild {
             deviceMenuNeedsRebuild = false
@@ -369,11 +405,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     @objc private func devicePopUpChanged(_ sender: NSPopUpButton) {
+        let changedTarget = (sender.selectedItem?.representedObject as? String) ?? "nil"
+        debugLog("changed target=\(changedTarget) suppress=\(suppressDeviceAction) remote=\(remoteHostname ?? "local")", stack: true)
         guard !suppressDeviceAction else { return }
         guard let target = sender.selectedItem?.representedObject as? String else { return }
         if target == (remoteHostname ?? Self.localDeviceID) {
             // 已经是当前模式：只保证显示对齐，绝不再调 selectCurrentInDeviceMenu()——
             // 若 selectItem(at:) 本身也会发 action，这里再选一次就是无限递归。
+            debugLog("changed noop target=\(target)")
             return
         }
         if target == Self.localDeviceID {
@@ -436,6 +475,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             self.deviceRequestInFlight = false
             switch result {
             case .success(let devices):
+                self.debugLog("devices loaded n=\(devices.count) menuOpen=\(self.deviceMenuOpen)")
                 self.cachedDevices = devices
                 self.devicePopUp.toolTip = "服务器 \(RemoteClient.base)"
                 if self.deviceMenuOpen {
@@ -447,12 +487,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
                     self.rebuildDeviceMenu(devices)
                 }
             case .failure(let error):
+                self.debugLog("devices failed \(RemoteClient.summary(of: error))")
                 self.devicePopUp.toolTip = "无法获取设备列表：\(RemoteClient.summary(of: error))"
             }
         }
     }
 
     private func rebuildDeviceMenu(_ devices: [RemoteDevice]) {
+        debugLog("rebuild start devices=\(devices.count) remote=\(remoteHostname ?? "local")")
         let savedTarget = devicePopUp.target
         devicePopUp.target = nil
         suppressDeviceAction = true
@@ -460,6 +502,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             devicePopUp.target = savedTarget
             suppressDeviceAction = false
             selectCurrentInDeviceMenu()
+            debugLog("rebuild end remote=\(remoteHostname ?? "local") popup=\(devicePopUp.titleOfSelectedItem ?? "nil")")
         }
         guard let menu = devicePopUp.menu else { return }
         menu.removeAllItems()
@@ -487,6 +530,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     private func updateDeviceMenuInPlace(_ devices: [RemoteDevice]) {
+        debugLog("updateInPlace devices=\(devices.count) remote=\(remoteHostname ?? "local")")
         let savedTarget = devicePopUp.target
         devicePopUp.target = nil
         suppressDeviceAction = true
@@ -542,9 +586,19 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     private func selectCurrentInDeviceMenu() {
-        // 必须在 devicePopUp.target 恢复之后再调用，不能在 target 为 nil 的重建窗口里提前选中。
         guard let menu = devicePopUp.menu else { return }
         let target = remoteHostname ?? Self.localDeviceID
+        // 程序化选中本身也可能触发 action，而 AppKit 在 selectItem(at:) 派发时
+        // sender.selectedItem 可能还是**旧**选中项——那会把刚切好的模式按旧值改回去
+        // （表现为"选了 ubuntu，列表也变了，随后又跳回本机"）。
+        // 因此选中期间一律摘掉 target + 抑制 action，谁也别想借机改模式。
+        let savedTarget = devicePopUp.target
+        devicePopUp.target = nil
+        suppressDeviceAction = true
+        defer {
+            devicePopUp.target = savedTarget
+            suppressDeviceAction = false
+        }
         if let item = menu.items.first(where: { ($0.representedObject as? String) == target }) {
             if let index = menu.items.firstIndex(of: item) {
                 devicePopUp.selectItem(at: index)
@@ -552,12 +606,14 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         } else if !menu.items.isEmpty {
             devicePopUp.selectItem(at: 0)
         }
+        debugLog("select target=\(target) got=\(devicePopUp.titleOfSelectedItem ?? "nil")")
     }
 
     // MARK: - 本机 / 远端切换
 
     private func switchToLocal() {
-        UserDefaults.standard.set(Self.localDeviceID, forKey: "systemWindow.device")
+        debugLog("switchToLocal from=\(remoteHostname ?? "local")", stack: true)
+        storeDevice(Self.localDeviceID)
         let wasRemote = remoteHostname != nil
         remoteHostname = nil
         remoteGeneration &+= 1
@@ -592,6 +648,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     }
 
     private func switchToRemote(hostname: String) {
+        debugLog("switchToRemote to=\(hostname) from=\(remoteHostname ?? "local")", stack: true)
         let changed = remoteHostname != hostname
         if changed {
             resetRemoteDetail(hidePanel: true)
@@ -607,7 +664,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
 
         remoteHostname = hostname
-        UserDefaults.standard.set(hostname, forKey: "systemWindow.device")
+        storeDevice(hostname)
         removeLocalObserver()
         RootProbe.setViewing(false)
         rootButton.title = "显示系统进程…"
@@ -647,6 +704,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             case .success(let processes):
                 self.applyRemoteProcesses(processes)
             case .failure(let error):
+                self.debugLog("fetchRemote failed \(RemoteClient.summary(of: error))")
                 self.remoteErrorText = "无法连接 \(base)（\(RemoteClient.summary(of: error))）"
                 self.updateRemoteChrome()
             }
