@@ -75,13 +75,11 @@ names=()
 labels=()
 mdxs=()
 csses=()
-matched=0
 while IFS='|' read -r name label rel css; do
     [ -z "$name" ] && continue
     if [ -n "$ONLY" ] && [ "$name" != "$ONLY" ]; then
         continue
     fi
-    matched=1
     names+=("$name")
     labels+=("$label")
     mdxs+=("$DICT_ROOT/$rel")
@@ -96,7 +94,6 @@ if [ ${#names[@]} -eq 0 ]; then
     fi
     exit 2
 fi
-[ "$matched" -eq 1 ] || exit 2
 
 missing=0
 for i in "${!names[@]}"; do

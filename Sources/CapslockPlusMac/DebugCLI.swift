@@ -412,6 +412,10 @@ enum DebugCLI {
             return runDictSelfTest()
         }
 
+        if CommandLine.arguments.contains("--panel-sound-escape-selftest") {
+            return runPanelSoundEscapeSelfTest()
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--translate-test"),
            index + 1 < CommandLine.arguments.count {
             let query = CommandLine.arguments[index + 1]
@@ -624,7 +628,7 @@ final class PanelMultiSelfTestDelegate: NSObject, NSApplicationDelegate {
             DictEntry(source: source, headword: "word", phonetic: nil,
                       body: "body-\(source)", audioBre: nil, audioAme: nil, html: nil)
         }
-        TranslatePanel.shared.show(entries: entries, audio: nil, query: "word")
+        TranslatePanel.shared.show(entries: entries, audio: nil)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             let buttonCount = TranslatePanel.shared.debugSourceButtonCount
@@ -981,6 +985,75 @@ func runSelfTest() -> Int32 {
     return 1
 }
 
+/// 纯逻辑自检：sound:// 解析不能跑出 assets 目录，扩展名回退要命中真实文件。
+func runPanelSoundEscapeSelfTest() -> Int32 {
+    let assets = DictEntry.assetsDirectory(for: "oaldpe")
+    var failures: [String] = []
+
+    func soundURL(_ relative: String) -> URL? {
+        let escaped = relative.split(separator: "/", omittingEmptySubsequences: false)
+            .map { String($0).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? String($0) }
+            .joined(separator: "/")
+        return URL(string: "sound://" + escaped)
+    }
+
+    func expectNil(_ raw: String) {
+        let got = URL(string: raw).flatMap {
+            TranslatePanel.resolveSoundFile(url: $0, assetsDirectory: assets)
+        }
+        if let got = got {
+            failures.append("escape not blocked: \(raw) -> \(got)")
+        }
+    }
+
+    expectNil("sound://../../etc/passwd")
+    expectNil("sound://a/../../b.mp3")
+    expectNil("sound:///etc/hosts")
+
+    // 找一个真实 mp3 当正例，顺带验证 .ogg → .mp3 回退
+    var mp3Relative: String?
+    if let enumerator = FileManager.default.enumerator(atPath: assets) {
+        for case let relative as String in enumerator where relative.lowercased().hasSuffix(".mp3") {
+            mp3Relative = relative
+            break
+        }
+    }
+
+    if let mp3Relative = mp3Relative {
+        if let url = soundURL(mp3Relative),
+           let got = TranslatePanel.resolveSoundFile(url: url, assetsDirectory: assets) {
+            if !FileManager.default.fileExists(atPath: got) {
+                failures.append("resolved file missing: \(got)")
+            }
+        } else {
+            failures.append("real mp3 not resolved: \(mp3Relative)")
+        }
+
+        let noExt = String(mp3Relative.dropLast(4))
+        if let url = soundURL(noExt + ".ogg"),
+           let got = TranslatePanel.resolveSoundFile(url: url, assetsDirectory: assets) {
+            let expected = URL(fileURLWithPath: (assets as NSString).appendingPathComponent(mp3Relative))
+                .standardized.path
+            if got != expected {
+                failures.append("ogg fallback -> \(got), expected \(expected)")
+            }
+        } else {
+            failures.append("ogg fallback missed: \(noExt).ogg")
+        }
+    } else {
+        failures.append("no mp3 under \(assets)")
+    }
+
+    if failures.isEmpty {
+        print("panel-sound-escape selftest OK")
+        return 0
+    }
+    for failure in failures {
+        FileHandle.standardError.write(Data("panel-sound-escape selftest FAILED: \(failure)\n".utf8))
+    }
+    return 1
+}
+
 /// 离线词库自检：meta 驱动多词典的 label/order/css 是否生效，老库是否还能兜底。
 func runDictSelfTest() -> Int32 {
     var failures: [String] = []
@@ -1035,15 +1108,11 @@ func runDictSelfTest() -> Int32 {
 
     if dict.debugHasMeta {
         let labels = dict.debugMetaLabels
-        // 这批是英英/英汉词典，没有中文词头，查中文只要求不崩、命中为空
+        // 库里已有三本中文词典，"你好" 也应该正常命中
         for word in ["abandon", "hello", "你好"] {
             let hits = dict.lookup(word)
             print("lookup \(word) hits=\(hits.count)")
             if hits.isEmpty {
-                if word == "你好" {
-                    print("  (expected: 未装汉英/反查词典)")
-                    continue
-                }
                 failures.append("no dictionary hit for \(word)")
             }
             for entry in hits {

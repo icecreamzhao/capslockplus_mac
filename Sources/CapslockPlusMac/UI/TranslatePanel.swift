@@ -206,8 +206,9 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     }
 
     /// 一次命中多本词典时，整张列表都交给面板，顶部提供来源切换。
-    func show(entries: [DictEntry], audio: String?, query: String) {
+    func show(entries: [DictEntry], audio: String?) {
         guard let first = entries.first else { return }
+        Log.info("panel show entries=\(entries.count) headword=\(first.headword)")
         currentEntries = entries
         currentIndex = 0
         currentAudio = audio
@@ -548,35 +549,54 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         }
     }
 
-    /// sound://ameProns/abandon1.mp3 → dict-assets/<source>/ameProns/abandon1.mp3；
-    /// 只在 assets 目录里找，避免路径逃逸；找不到再按文件名下探 2 层。
+    /// sound://ameProns/abandon1.mp3 → dict-assets/<source>/ameProns/abandon1.mp3。
     private func playSound(url: URL) {
         lastSoundURL = url.absoluteString
         lastSoundPlayed = false
-        let encoded = (url.host ?? "") + url.path
-        let decoded = encoded.removingPercentEncoding ?? encoded
-        let relative = decoded.hasPrefix("/") ? String(decoded.dropFirst()) : decoded
-        guard !relative.isEmpty else {
-            Log.warn("dict audio missing url=\(url.absoluteString) reason=empty-path")
+        guard let file = TranslatePanel.resolveSoundFile(url: url, assetsDirectory: currentAssetsDirectory) else {
+            Log.warn("dict audio missing url=\(url.absoluteString)")
             return
-        }
-        guard let directory = currentAssetsDirectory else {
-            Log.warn("dict audio missing url=\(url.absoluteString) reason=no-assets-dir")
-            return
-        }
-        var file = (directory as NSString).appendingPathComponent(relative)
-        if !FileManager.default.fileExists(atPath: file) {
-            let name = (relative as NSString).lastPathComponent
-            guard let found = findAsset(named: name, in: directory) else {
-                Log.warn("dict audio missing url=\(url.absoluteString)")
-                return
-            }
-            file = found
         }
         lastSoundPlayed = AudioPlayer.shared.play(file: file)
     }
 
-    private func findAsset(named name: String, in directory: String) -> String? {
+    /// 把 sound:// URL 解析成 assets 目录里的绝对路径。拒绝 `..`/`.` 段，
+    /// 并在标准化后再次确认没有跑出 assets 目录。
+    static func resolveSoundFile(url: URL, assetsDirectory: String?) -> String? {
+        let encoded = (url.host ?? "") + url.path
+        let decoded = encoded.removingPercentEncoding ?? encoded
+        let relative = decoded.hasPrefix("/") ? String(decoded.dropFirst()) : decoded
+        guard !relative.isEmpty else { return nil }
+        let segments = relative.split(separator: "/", omittingEmptySubsequences: false)
+        guard !segments.contains(where: { $0 == ".." || $0 == "." }) else { return nil }
+        guard let directory = assetsDirectory else { return nil }
+
+        let root = URL(fileURLWithPath: directory).standardized.path
+        let candidate = URL(fileURLWithPath: (directory as NSString).appendingPathComponent(relative))
+            .standardized.path
+        guard candidate.hasPrefix(root + "/") else { return nil }
+        if FileManager.default.fileExists(atPath: candidate) {
+            return candidate
+        }
+
+        // 音链扩展名和 mdd 里实际文件常常对不上：牛津高阶10 大量 .ogg 链接，库里只有 .mp3。
+        let ext = (candidate as NSString).pathExtension.lowercased()
+        let base = (candidate as NSString).deletingPathExtension
+        var alternatives: [String] = []
+        if ["ogg", "spx", "wav", "m4a"].contains(ext) {
+            alternatives.append(base + ".mp3")
+        } else if ext == "mp3" {
+            alternatives.append(base + ".spx")
+        }
+        for alternative in alternatives where FileManager.default.fileExists(atPath: alternative) {
+            return alternative
+        }
+
+        let name = (relative as NSString).lastPathComponent
+        return findAsset(named: name, in: directory)
+    }
+
+    private static func findAsset(named name: String, in directory: String) -> String? {
         guard let enumerator = FileManager.default.enumerator(atPath: directory) else { return nil }
         for case let relative as String in enumerator {
             let depth = relative.split(separator: "/").count
@@ -611,7 +631,7 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             return
         }
         Log.info("entry open word=\(word) hits=\(entries.count)")
-        show(entries: entries, audio: entries.first?.audioPath, query: word)
+        show(entries: entries, audio: entries.first?.audioPath)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
