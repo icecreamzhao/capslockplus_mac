@@ -7,7 +7,7 @@
         --dict ldoce6="$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdx" \
         --label oalecd9=牛津高阶 --label ldoce6=朗文 \
         [--css ldoce6=LongmanDictionaryOfContemporaryEnglish6thEnEn.css] \
-        [--limit 3000] [--show abandon hello 你好] [--verify]
+        [--limit 3000] [--show abandon hello 你好] [--verify] [--expand-aliases]
 
 要点：
 - readmdict 会 import lzo，缺 python-lzo 直接 SystemExit；这里先塞一个占位模块，
@@ -16,8 +16,8 @@
 - 正文抽成纯文本行，形如 "verb\t（不顾责任等）离弃，遗弃，抛弃"，
   App 里直接按行渲染，不需要再解析 HTML。
 - 只有 oalecd9 / ldoce6 有专用解析器，其他词典走 extract_generic 兜底。
-- 正文以 @@@LINK= 开头的条目是跳转条目：不进 entries，记进 aliases，
-  全部词典写完后按 source 展开成正式词条。
+- 正文以 @@@LINK= 开头的条目是跳转条目：不进 entries，只记进 aliases，
+  查词时由 App 跳一次。需要旧行为（把跳转展开成完整词条）时加 --expand-aliases。
 """
 
 import argparse
@@ -400,6 +400,8 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="只处理前 N 条，用于试跑")
     parser.add_argument("--show", nargs="*", default=[], help="转换后打印这些词的解析结果")
     parser.add_argument("--verify", action="store_true", help="转换后打印每本词典的入库统计")
+    parser.add_argument("--expand-aliases", action="store_true",
+                        help="把 @@@LINK= 跳转展开成完整 entries 行（旧行为，占空间）")
     args = parser.parse_args()
 
     specs = []
@@ -494,6 +496,7 @@ def main():
         )
         meta = {
             f"count_{label}": str(len(rows)),
+            f"aliases_{label}": str(len(aliases)),
             f"label_{label}": labels.get(label, label),
             f"order_{label}": str(order),
             f"css_{label}": stylesheets.get(label, ""),
@@ -504,10 +507,11 @@ def main():
         print(f"{label}: 读入 {total} 条 → 落库 {len(rows)} 条，跳转 {len(aliases)} 条，"
               f"用时 {time.time() - started:.1f}s")
 
-    expanded = expand_aliases(conn)
-    conn.commit()
-    if expanded:
-        print(f"alias 展开：新增 {expanded} 条词条")
+    if args.expand_aliases:
+        expanded = expand_aliases(conn)
+        conn.commit()
+        if expanded:
+            print(f"alias 展开：新增 {expanded} 条词条")
 
     conn.execute("CREATE INDEX IF NOT EXISTS idx_word ON entries(word)")
     conn.commit()
@@ -529,11 +533,9 @@ def main():
     if args.verify:
         print("\n===== verify =====")
         for label in processed:
-            count, with_html = conn.execute(
-                "SELECT COUNT(*), COALESCE(SUM(html IS NOT NULL AND length(html) > 0), 0)"
-                " FROM entries WHERE source = ?",
-                (label,),
-            ).fetchone()
+            count = conn.execute(
+                "SELECT COUNT(*) FROM entries WHERE source = ?", (label,)
+            ).fetchone()[0]
             values = dict(conn.execute(
                 "SELECT k, v FROM meta WHERE k IN (?,?,?)",
                 (f"label_{label}", f"order_{label}", f"css_{label}"),
@@ -543,8 +545,7 @@ def main():
             ).fetchone()[0]
             print(f"source={label} label={values.get('label_' + label) or '-'} "
                   f"order={values.get('order_' + label) or '-'} "
-                  f"entries={count} html={with_html} aliases={alias_count} "
-                  f"css={values.get('css_' + label) or '-'}")
+                  f"entries={count} aliases={alias_count}")
 
     # 收尾切回普通日志模式并整理一遍，避免留下 -wal/-shm
     conn.execute("PRAGMA journal_mode=DELETE")

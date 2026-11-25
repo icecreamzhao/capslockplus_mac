@@ -86,6 +86,8 @@ final class OfflineDictionary {
     private var orders: [String: Int] = [:]
     private var cssFiles: [String: String] = [:]
     private var hasMeta = false
+    /// 命中过别名的词只记一次日志，避免查词时刷屏
+    private var loggedAliasHits: Set<String> = []
 
     private init() {
         let path = Self.databasePath
@@ -115,6 +117,17 @@ final class OfflineDictionary {
     var debugHasAliases: Bool {
         guard db != nil else { return false }
         return scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'aliases'") > 0
+    }
+    /// aliases 表行数；表不存在或查询失败返回 nil（老库没有这张表）
+    var debugAliasCount: Int? {
+        guard db != nil, debugHasAliases else { return nil }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM aliases", -1, &statement, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return Int(sqlite3_column_int64(statement, 0))
     }
 
     /// 所有词典来源（按 order 升序），label/order 来自 meta，缺失时回落写死表。
@@ -149,12 +162,48 @@ final class OfflineDictionary {
     func lookup(_ raw: String) -> [DictEntry] {
         guard db != nil else { return [] }
         for candidate in Self.candidates(for: raw) {
-            let rows = query(candidate)
+            let rows = queryWithAlias(candidate)
             if !rows.isEmpty {
                 return rows
             }
         }
         return []
+    }
+
+    /// 先查 entries，miss 时按 aliases 跳一次（不链式跳转）。
+    private func queryWithAlias(_ word: String) -> [DictEntry] {
+        let direct = query(word)
+        if !direct.isEmpty { return direct }
+        for target in aliasTargets(word) {
+            if target == word { continue }
+            let rows = query(target)
+            if !rows.isEmpty {
+                if loggedAliasHits.insert(word).inserted {
+                    Log.info("dict alias hit word=\(word) target=\(target)")
+                }
+                return rows
+            }
+        }
+        return []
+    }
+
+    /// aliases 里该词的前 2 个目标；表不存在 / prepare 失败 / 查询报错都当没有别名处理。
+    private func aliasTargets(_ word: String) -> [String] {
+        guard db != nil else { return [] }
+        let sql = "SELECT target FROM aliases WHERE word = ? ORDER BY source LIMIT 2"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return []
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, word, -1, transient)
+        var targets: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let pointer = sqlite3_column_text(statement, 0) {
+                targets.append(String(cString: pointer))
+            }
+        }
+        return targets
     }
 
     private func query(_ word: String) -> [DictEntry] {

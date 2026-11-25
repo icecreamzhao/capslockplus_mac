@@ -931,6 +931,11 @@ func runDictSelfTest() -> Int32 {
         print("  source=\(info.source) label=\(info.label) order=\(order) entries=\(info.count)")
     }
     print("entries=\(dict.debugEntryCount) aliases=\(dict.debugHasAliases ? "present" : "missing")")
+    if let aliasCount = dict.debugAliasCount {
+        print("aliases table rows=\(aliasCount)")
+    } else {
+        print("no aliases table")
+    }
 
     if dict.debugHasMeta {
         let labels = dict.debugMetaLabels
@@ -972,6 +977,19 @@ func runDictSelfTest() -> Int32 {
                 }
             }
         }
+    }
+
+    // 屈折形式：新库靠 aliases 跳转，老库没有 aliases 表时跳过
+    if dict.debugHasAliases {
+        for word in ["abandoned", "went"] {
+            let hits = dict.lookup(word)
+            print("inflection \(word) hits=\(hits.count)")
+            if hits.isEmpty {
+                failures.append("alias lookup missed inflection \(word)")
+            }
+        }
+    } else {
+        print("inflection checks skipped: no aliases table")
     }
 
     return finish()
