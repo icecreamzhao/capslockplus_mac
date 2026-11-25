@@ -28,7 +28,6 @@ macmillan|麦克米伦|欧陆词典包资源/⑥麦克米伦系列词典 （共3
 merriam|韦氏高阶|欧陆词典包资源/⑤韦氏系列词典 （共4本）/1.英汉双 韦氏高阶2019 （精装完美版）/韦氏高阶.mdx|
 newoxford|新牛津双解|欧陆词典包资源/①牛津系列词典（共15本）/6.英汉双 新牛津高阶2（精装版）/新牛双解词典.mdx|
 lugu|英汉大词典|欧陆词典包资源/⑦其他词典（共31本）/14.英汉大词典（陆谷孙）/陆谷孙.mdx|
-tld|The little dict|欧陆词典包资源/⑦其他词典（共31本）/1.The little dict （完整精装版）全设备可安/TLD.mdx|
 vocabcom|Vocabulary.com|欧陆词典包资源/⑦其他词典（共31本）/2.Vocabulary.com （精装版）/Vocabulary.com Dictionary.mdx|
 EOF
 )
