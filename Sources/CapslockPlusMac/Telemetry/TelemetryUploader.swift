@@ -57,7 +57,12 @@ final class TelemetryUploader {
     @discardableResult
     func recordFailure(now: Date) -> TimeInterval {
         consecutiveFailures += 1
-        let delay = min(60 * pow(2, Double(consecutiveFailures - 1)), 15 * 60)
+        let delay: TimeInterval
+        switch consecutiveFailures {
+        case 1: delay = 60
+        case 2: delay = 120
+        default: delay = 3600   // 3 次及以后每小时重试
+        }
         nextAttempt = now.addingTimeInterval(delay)
         return delay
     }

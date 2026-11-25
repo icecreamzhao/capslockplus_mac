@@ -396,18 +396,106 @@ final class TelemetryAgent {
         var error: String?
     }
 
+    private struct MergedBatches {
+        var node: TelemetryNodeInfo?
+        var samples: [TelemetrySamplePayload] = []
+        /// 合并进本次请求、成功后可以删掉的批次。
+        var usedIDs: [Int64] = []
+        /// 解不出来（或空批次）的批次，直接删掉，免得卡住队列。
+        var droppedIDs: [Int64] = []
+        var queueEmpty = false
+    }
+
+    /// 从 FIFO 里取小批次（每批一个 tick 的样本），解码合并成一次请求。
+    /// 只合并整批，样本数达到 batchLimit 或下一批放不下就停；
+    /// 没合并进去的批次留在队列里给下一轮，不删。
+    private func mergeQueuedBatches(fetchLimit: Int = 100) -> MergedBatches {
+        var merged = MergedBatches()
+        let decoder = JSONDecoder()
+        var stop = false
+        while !stop, merged.samples.count < Self.batchLimit {
+            let batches: [TelemetryBuffer.StoredBatch]
+            do {
+                batches = try buffer.dequeue(limit: fetchLimit)
+            } catch {
+                Log.warn("telemetry dequeue failed: \(error)")
+                break
+            }
+            if batches.isEmpty {
+                merged.queueEmpty = true
+                break
+            }
+            for batch in batches {
+                guard let envelope = try? decoder.decode(TelemetryEnvelope.self,
+                                                         from: batch.payload) else {
+                    Log.warn("telemetry drop undecodable batch id=\(batch.id) "
+                        + "bytes=\(batch.payload.count)")
+                    merged.droppedIDs.append(batch.id)
+                    continue
+                }
+                guard !envelope.samples.isEmpty else {
+                    Log.warn("telemetry drop empty batch id=\(batch.id)")
+                    merged.droppedIDs.append(batch.id)
+                    continue
+                }
+                if merged.node == nil { merged.node = envelope.agent }
+
+                let room = Self.batchLimit - merged.samples.count
+                if envelope.samples.count > room {
+                    if merged.samples.isEmpty {
+                        // 历史遗留的超大批次：只发 5000 条前缀，否则它会永远堵住队列。
+                        Log.warn("telemetry truncate oversized batch id=\(batch.id) "
+                            + "samples=\(envelope.samples.count)")
+                        merged.samples.append(contentsOf: envelope.samples.prefix(room))
+                        merged.usedIDs.append(batch.id)
+                    }
+                    stop = true
+                    break
+                }
+                merged.samples.append(contentsOf: envelope.samples)
+                merged.usedIDs.append(batch.id)
+                if merged.samples.count >= Self.batchLimit {
+                    stop = true
+                    break
+                }
+            }
+        }
+        return merged
+    }
+
     private func flush() -> FlushResult {
         var result = FlushResult()
         // 一轮别无限跑；积压很多时下一个 tick 继续追。
+        // 这里 20 是合并后的请求数，不是队列批次数。
         for _ in 0..<20 {
             let now = Date()
             guard uploader.canAttempt(now: now) else { break }
-            guard let batches = try? buffer.dequeue(limit: 1),
-                  let batch = batches.first else { break }
 
-            switch uploader.upload(batch.payload) {
+            let merged = mergeQueuedBatches()
+            if !merged.droppedIDs.isEmpty {
+                try? buffer.delete(ids: merged.droppedIDs)
+                result.batches += merged.droppedIDs.count
+                result.error = "dropped \(merged.droppedIDs.count) undecodable batch(es)"
+            }
+
+            guard let node = merged.node, !merged.samples.isEmpty else {
+                // 只是丢了坏批次且队列还有内容：继续下一轮；否则收工。
+                if merged.queueEmpty || merged.droppedIDs.isEmpty { break }
+                continue
+            }
+
+            let payload: Data
+            do {
+                payload = try TelemetryPayload.encode(node: node, samples: merged.samples)
+            } catch {
+                Log.warn("telemetry encode failed: \(error)")
+                result.error = "encode failed: \(error)"
+                return result
+            }
+
+            switch uploader.upload(payload) {
             case .accepted(let accepted, _, _):
-                try? buffer.delete(ids: [batch.id])
+                try? buffer.delete(ids: merged.usedIDs)
                 uploader.recordSuccess()
                 result.sent += accepted
                 result.batches += 1
@@ -416,11 +504,12 @@ final class TelemetryAgent {
                 return result
             case .rejected(let status, let message):
                 // 4xx 不是网络问题，重试也不会变；丢掉并留下线索。
-                try? buffer.delete(ids: [batch.id])
+                try? buffer.delete(ids: merged.usedIDs)
                 uploader.recordSuccess()
                 result.batches += 1
                 result.error = "dropped status=\(status) \(message)"
             case .transient(let message):
+                // 批次还在队列里，下一个 tick 重新合并重试。
                 let delay = uploader.recordFailure(now: Date())
                 result.error = "\(message) retry_in=\(Int(delay))s"
                 return result
