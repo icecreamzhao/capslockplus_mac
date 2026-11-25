@@ -329,7 +329,11 @@ def clean_ipa(value):
         return None
     text = strip_tags(value).replace("\u200b", "")
     text = re.sub(r"\s+", " ", text).strip()
+    # 多个变体只取第一个（英式）：ldoce6ec 写作 "həˈləʊ, he-"、"ˈwɒːtər, ˈwɑː-"
+    text = text.split(",")[0].strip()
     text = text.strip("/[]").strip(" .,;")
+    if text.endswith("-"):
+        text = text.rstrip("- ").strip()
     if not (1 <= len(text) <= 60):
         return None
     if not IPA_CHARS_RE.match(text):
