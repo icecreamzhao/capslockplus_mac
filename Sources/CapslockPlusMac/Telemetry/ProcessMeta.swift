@@ -75,6 +75,12 @@ final class ProcessMeta {
                     residentBytes: task.residentBytes)
     }
 
+    /// 进程消失后清掉缓存的身份。不清的话 pid 被复用时会一直拿旧进程的 started_at，
+    /// 服务端按 (pid, started_at) 认实例，新进程的样本会被算到已退出的那个实例头上。
+    func forget(pid: pid_t) {
+        identities.removeValue(forKey: pid)
+    }
+
     private static func loadIdentity(_ pid: pid_t) -> Identity {
         var bsd = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)

@@ -69,6 +69,37 @@ struct TelemetrySamplePayload: Codable {
         try container.encode(netRxRate, forKey: .netRxRate)
         try container.encode(netTxRate, forKey: .netTxRate)
     }
+
+    /// 进程退出时补的那条：保留身份（pid/ppid/name/user/exe/argv/started_at/ports），
+    /// 计量字段归零，ended = true，ts = 退出时刻。
+    func endedCopy(ts: String) -> TelemetrySamplePayload {
+        // 服务端要求 started_at <= ts；系统时钟回拨时不要把退出时间写早。
+        var endedTS = ts
+        if let ended = TelemetryPayload.parseTimestamp(ts),
+           let started = TelemetryPayload.parseTimestamp(startedAt),
+           ended < started {
+            endedTS = startedAt
+        }
+        return TelemetrySamplePayload(pid: pid,
+                                      ppid: ppid,
+                                      name: name,
+                                      user: user,
+                                      exe: exe,
+                                      argv: argv,
+                                      startedAt: startedAt,
+                                      ended: true,
+                                      ports: ports,
+                                      ts: endedTS,
+                                      cpu: 0,
+                                      rss: 0,
+                                      footprint: 0,
+                                      threads: 0,
+                                      openFiles: 0,
+                                      netRx: 0,
+                                      netTx: 0,
+                                      netRxRate: 0,
+                                      netTxRate: 0)
+    }
 }
 
 struct TelemetryEnvelope: Codable {
@@ -231,6 +262,17 @@ final class TelemetryCollector {
                                                           netRxRate: entry.rxRate,
                                                           netTxRate: entry.txRate))
     }
+
+    /// 与 payload(for:now:) 生成 started_at 的方式保持一致，用来判断 pid 是否被复用。
+    func startedAt(for sample: ProcessSample, now: Date) -> String {
+        let started = min(meta.info(for: sample.pid, now: now).startedAt ?? now, now)
+        return TelemetryPayload.timestamp(started)
+    }
+
+    /// 进程消失后丢弃缓存的 pid 身份，避免 pid 复用时读到旧进程的 started_at。
+    func forget(pid: pid_t) {
+        meta.forget(pid: pid)
+    }
 }
 
 final class TelemetryAgent {
@@ -244,6 +286,9 @@ final class TelemetryAgent {
     private var mutablePolicy = TelemetryPolicy()
     private let buffer: TelemetryBuffer
     private let uploader: TelemetryUploader
+    /// pid -> 最后一次真正发给服务端的 payload，用来在进程消失时补一条 ended 样本。
+    /// 复用原 payload 保证 started_at 一字不差（服务端按 (pid, started_at) 认实例）。
+    private var lastSent: [pid_t: TelemetrySamplePayload] = [:]
 
     init(config: TelemetryConfig) throws {
         buffer = try TelemetryBuffer(path: TelemetryPaths.database)
@@ -280,12 +325,33 @@ final class TelemetryAgent {
             payloads.append(collector.payload(for: entry, now: now))
         }
 
-        for start in stride(from: 0, to: payloads.count, by: Self.batchLimit) {
-            let end = min(start + Self.batchLimit, payloads.count)
+        let alive = Dictionary(entries.map { ($0.sample.pid, $0.sample) },
+                               uniquingKeysWith: { first, _ in first })
+        let endedTS = TelemetryPayload.timestamp(now)
+        var endedPayloads: [TelemetrySamplePayload] = []
+        for (pid, old) in Array(lastSent) {
+            if let sample = alive[pid],
+               collector.startedAt(for: sample, now: now) == old.startedAt {
+                continue
+            }
+            endedPayloads.append(old.endedCopy(ts: endedTS))
+            lastSent.removeValue(forKey: pid)
+            // pid 已经消失：丢掉缓存的身份，下次这个 pid 出现时按新进程处理。
+            // 否则 pid 复用后 started_at 还是旧值，会一直判成"还活着"。
+            collector.forget(pid: pid)
+        }
+
+        let outgoing = payloads + endedPayloads
+        for start in stride(from: 0, to: outgoing.count, by: Self.batchLimit) {
+            let end = min(start + Self.batchLimit, outgoing.count)
+            let slice = Array(outgoing[start..<end])
             do {
                 let data = try TelemetryPayload.encode(node: node,
-                                                       samples: Array(payloads[start..<end]))
+                                                       samples: slice)
                 try buffer.enqueue(data, createdAt: now)
+                for payload in slice where !payload.ended {
+                    lastSent[payload.pid] = payload
+                }
             } catch {
                 Log.warn("telemetry enqueue failed: \(error)")
                 break
@@ -303,6 +369,7 @@ final class TelemetryAgent {
 
         let before = (try? buffer.stats()) ?? (batches: 0, bytes: 0)
         let line = "telemetry tick samples=\(entries.count) due=\(payloads.count) "
+            + "ended=\(endedPayloads.count) "
             + "queued=\(before.batches)/\(before.bytes)B pruned=\(pruned)"
         if pruned > 0 { Log.warn(line) } else { Log.info(line) }
 
