@@ -330,8 +330,14 @@ def strip_tags(fragment):
 
 
 def block_tag_name(tag):
-    """<div ...> / </div> / <br/> 都归一成 div / br。"""
-    return tag.strip("<>").split()[0].strip("/").lower()
+    """<div ...> / </div> / <br/> 都归一成 div / br。
+
+    个别词库里有 `<>` 这种空标签，split() 会返回空列表，直接给空串当未知标签。
+    """
+    parts = tag.strip("<>").split()
+    if not parts:
+        return ""
+    return parts[0].strip("/").lower()
 
 
 def extract_generic(source):
