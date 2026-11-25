@@ -599,7 +599,13 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     private static func findAsset(named name: String, in directory: String) -> String? {
         guard let enumerator = FileManager.default.enumerator(atPath: directory) else { return nil }
         let maxDepth = 4   // ldoce6ec 的音频挂在 hwd/bre/9/ 这种四层目录下
+        // 这个函数在 decidePolicyFor 里跑主线程，而 dictionary 单本最多 27 万个文件
+        // （牛津高阶10）；找不到时会走完整个四层树，所以给遍历设硬预算，宁可本次不播。
+        let budget = 20_000
+        var checked = 0
         for case let relative as String in enumerator {
+            checked += 1
+            guard checked <= budget else { return nil }
             let depth = relative.split(separator: "/").count
             guard depth <= maxDepth else { continue }
             let full = (directory as NSString).appendingPathComponent(relative)
