@@ -9,7 +9,7 @@
 移动整行）、窗口绑定与平铺、文本变换、插入日期时间、以及划词翻译。松开 Caps 恢复普通键盘。
 
 - 单手不离开主键区就能改稿，不用去够方向键和鼠标
-- `caps+t` 划词翻译：选中单词按一下，浮层里显示完整词条（本地牛津/朗文 + 在线兜底），带读音
+- `caps+t` 划词翻译：选中单词按一下，浮层里显示完整词条（12 本离线词典，未命中再联网兜底），带读音
 - `caps+alt+数字` 把当前窗口绑到某个数字上，之后 `caps+数字` 直接跳回去
 
 不做的部分（v0 明确砍掉）：启动器/qbar、按 App 切换键位方案、多剪贴板、自动更新、偏好设置界面。
@@ -80,6 +80,9 @@ open /Applications/CapslockPlusMac.app
 - 想恢复自动关闭：`keymap.json` 顶层加 `"panelAutoHideMs": 12000`（毫秒，0 = 不自动关）
 - 词条默认用 WKWebView 渲染词典原始 HTML（颜色、表格、插图、音标字体都保留）；
   想退回纯文本加 `"panelRenderMode": "text"`
+- 离线词典共 **12 本**（英文 9 + 中文 3），一个词能同时命中多本：浮层顶部按来源切换，
+  `⌘↑` / `⌘↓` 换词典；词条里的 🔊 直接播本地音频，词内链接 `entry://` 就地查词、不跳网页
+- 离线没命中才联网（有道 NMT → `dict.youdao.com`），联网失败时浮层只显示离线结果
 
 ### 5. 小工具：录屏转 GIF
 
@@ -183,8 +186,10 @@ RSS 字段是占位符、CPU 字段恒为 0。这类行会保留在表里（名�
   读 → 还原」取词，Clipy 这类历史工具会记录这一次复制。
 - **JVM 系 App 要在 IDE 内勾 "Support screen readers"** 才暴露文本节点；Qt / GPU 终端 / 远程桌面
   拿不到 AX 选区，只能走白名单兜底。
-- **词典与读音是本地数据，不在仓库里**（`dict.sqlite` 459MB、`audio/` 505MB、`dict-assets/` 182MB），
-  放在 `~/.config/capslock-plus-mac/`。翻译凭据同理（`youdao.json`，mode 600），没配也能用公开接口。
+- **词典与读音是本地数据，不在仓库里**（`dict.sqlite` 2.9GB / 12 本 / 约 149 万条，
+  `dict-assets/` 7.6GB / 67 万个文件），放在 `~/.config/capslock-plus-mac/`；
+  词库由自备 mdx 用 `scripts/build-offline-dict.sh` 转出来，不随仓库分发。
+  翻译凭据同理（`youdao.json`，mode 600），没配也能用公开接口。
 - **偶发「某个 App 里输入法不出候选框」**：全局输入源正确、其它 App 同时正常，只有那一个 App
   不弹候选（实测是 Terminal）。**解法：切到别的 App 打两个字再切回来**（让那个 App 重建输入上下文）。
   已排除切源失败、IME 进程卡英文、杀进程、短间隔连切；确定是该 App 的输入上下文与输入法客户端
@@ -198,16 +203,29 @@ RSS 字段是占位符、CPU 字段恒为 0。这类行会保留在表里（名�
 
 ![代码架构](docs/architecture.png)
 
-分层职责：
+图由 `scripts/gen-architecture.py` 生成（手排 SVG → `rsvg-convert` 出 PNG），改结构就改脚本重跑，
+不用手改图。
 
-- **入口层** `main.swift` / `DebugCLI`：单实例保护、命令行子命令（自检与探针），子命令跑完直接退出，
-  不影响常驻实例
+分层职责（自上而下）：
+
+- **入口层** `main.swift` / `DebugCLI` / `AppDelegate`：单实例保护、命令行子命令（自检与探针，跑完即退，
+  不影响常驻实例）、状态栏菜单与开机自启
 - **按键层** `KeyLayer/`：hidutil 把 Caps 重映射成 F18 → CGEventTap 吞掉 F18 自己维护「按住/松开」
   → `CapsState` 判定单按（切大小写）/ 空档 / 长按（切输入法）→ 其余按键经 `Chord` 的键码表换算成
   `KeyCombo` 去查 `Config.keymap.bindings` 得到 `Action`
 - **动作层** `Actions/`：只用 `Support` 提供的系统能力（合成按键、AX、剪贴板）实现语义动作，
   不直接碰事件 tap
 - **系统能力层** `Support/`：AX 的读取原语收敛在 `AXAttribute.swift` 一处，App 与探针共用同一条路径；
-  输入源、HID、窗口存储、日志都在这里
+  输入源、HID、窗口存储、剪贴板、GIF、读音播放、日志都在这里
 - **配置层** `Action.swift` / `Config.swift`：动作名 ↔ `Action` 的唯一映射表 + 键位表读写/默认值
-- **UI 层** `UI/TranslatePanel`：翻译浮层，HTML（WKWebView）与纯文本（NSTextView）两种渲染模式
+- **词典与浮层** `Support/OfflineDictionary` + `Support/TranslateService` + `UI/TranslatePanel`：
+  12 本离线词典优先（`dict.sqlite` + `dict-assets/`，别名表按需跳一次），未命中才走有道；
+  浮层是 WKWebView（HTML）与 NSTextView（纯文本）两种渲染模式，`sound://` 播本地音频、`entry://` 就地查词
+- **采样与界面** `Support/SystemMonitor`（后台队列定时采样、默认 2 秒）→ `UI/SystemWindow`（活动监视器
+  窗口）、`UI/StatusReadoutView`（菜单栏两行读数）、`UI/RemoteDevices`（设备下拉框，远端走 `capsql-api`）；
+  这一层由菜单打开，不占键位
+- **进程遥测** `Telemetry/`：2 秒 tick、策略只挑热进程、SQLite 缓冲 + 合批补传，POST 到 `capsql-api`
+  （独立仓库）再落 PostgreSQL + TimescaleDB；其它机器用 `capsql-agent` 走同一个接口
+
+两条数据流互不干扰：按键链路是「tap → CapsState → Action → Support」，采样与遥测各有自己的 tick，
+不跟着按键走；所有本地数据都在 `~/.config/capslock-plus-mac/`。
