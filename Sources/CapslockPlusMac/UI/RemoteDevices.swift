@@ -219,9 +219,11 @@ final class RemoteClient {
     }
 
     func fetchProcesses(hostname: String, limit: Int = 500,
+                        maxAgeMinutes: Int = 40,
                         completion: @escaping (Result<[RemoteProcess], Error>) -> Void) {
         let encoded = Self.encodePathComponent(hostname)
-        get("/v1/devices/\(encoded)/processes?limit=\(limit)", completion: completion)
+        get("/v1/devices/\(encoded)/processes?limit=\(limit)&max_age_minutes=\(maxAgeMinutes)",
+            completion: completion)
     }
 
     func fetchInstance(id: Int64, completion: @escaping (Result<RemoteInstanceDetail, Error>) -> Void) {

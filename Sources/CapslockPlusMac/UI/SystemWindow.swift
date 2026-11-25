@@ -14,6 +14,20 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+    private static let dataTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:mm"
+        return formatter
+    }()
+
+    /// 数据时间距今的文案：<1 分钟"刚刚"，然后分钟/小时/天。
+    static func ageText(from date: Date, now: Date = Date()) -> String {
+        let seconds = max(now.timeIntervalSince(date), 0)
+        if seconds < 60 { return "刚刚" }
+        if seconds < 3600 { return "\(Int(seconds / 60)) 分钟前" }
+        if seconds < 86_400 { return "\(Int(seconds / 3600)) 小时前" }
+        return "\(Int(seconds / 86_400)) 天前"
+    }
 
     private let panel: SystemPanel
     private var cpuBar = NSProgressIndicator()
@@ -51,6 +65,8 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
     /// pid -> instance_id，远端 ⓘ 用
     private var instanceByPid: [pid_t: Int64] = [:]
     private var remoteLastUpdate: Date?
+    /// 回退到"最后已知状态"时，这批数据里最新的 last_seen；nil 表示实时数据
+    private var remoteDataThrough: Date?
     private var remoteErrorText: String?
     private var remoteTimer: Timer?
     private var remoteGeneration = 0
@@ -465,6 +481,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             remoteRequestInFlight = false
             remoteErrorText = nil
             remoteLastUpdate = nil
+            remoteDataThrough = nil
             resetRemoteDetail(hidePanel: true)
             displayRowsDirty = true
             _ = rows()
@@ -630,6 +647,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         remoteRows = []
         instanceByPid = [:]
         remoteLastUpdate = nil
+        remoteDataThrough = nil
         remoteErrorText = nil
         resetRemoteDetail(hidePanel: true)
         displayRowsDirty = true
@@ -664,6 +682,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             remoteRows = []
             instanceByPid = [:]
             remoteLastUpdate = nil
+            remoteDataThrough = nil
             remoteErrorText = nil
             displayRowsDirty = true
             _ = rows()
@@ -704,12 +723,32 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         let base = RemoteClient.base
         RemoteClient.shared.fetchProcesses(hostname: host, limit: 500) { [weak self] result in
             guard let self else { return }
+            // 先复位在途标记再判 generation：否则切了设备/关了面板后
+            // inFlight 永远为 true，定时器再也不刷新（原实现就是这个顺序）
             self.remoteRequestInFlight = false
             guard generation == self.remoteGeneration, self.remoteHostname == host else { return }
 
             switch result {
-            case .success(let processes):
-                self.applyRemoteProcesses(processes)
+            case .success(let processes) where !processes.isEmpty:
+                self.applyRemoteProcesses(processes, dataThrough: nil)
+            case .success:
+                // 实时窗口里没有样本（设备还在补传积压）：再查一次"最后已知状态"。
+                // 第二段结束前 remoteRequestInFlight 保持 true，避免定时器插进来。
+                self.debugLog("fetchRemote empty, fallback to last known")
+                self.remoteRequestInFlight = true
+                RemoteClient.shared.fetchProcesses(hostname: host, limit: 500, maxAgeMinutes: 0) { [weak self] result in
+                    guard let self else { return }
+                    self.remoteRequestInFlight = false
+                    guard generation == self.remoteGeneration, self.remoteHostname == host else { return }
+                    switch result {
+                    case .success(let processes):
+                        self.applyRemoteProcesses(processes, dataThrough: processes.compactMap(\.lastSeen).max())
+                    case .failure(let error):
+                        // 第一段已经成功，回退查询失败也不该把界面改成"连不上服务器"
+                        self.debugLog("fetchRemote fallback failed \(RemoteClient.summary(of: error))")
+                        self.applyRemoteProcesses([], dataThrough: nil)
+                    }
+                }
             case .failure(let error):
                 self.debugLog("fetchRemote failed \(RemoteClient.summary(of: error))")
                 self.remoteErrorText = "无法连接 \(base)（\(RemoteClient.summary(of: error))）"
@@ -718,7 +757,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
     }
 
-    private func applyRemoteProcesses(_ processes: [RemoteProcess]) {
+    private func applyRemoteProcesses(_ processes: [RemoteProcess], dataThrough: Date?) {
         let selectedPID = selectedSample()?.pid
         remoteRows = processes.map { process in
             ProcessSample(pid: process.pid, name: process.name, cpu: process.cpu,
@@ -731,6 +770,7 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
         }
         instanceByPid = mapping
         remoteLastUpdate = Date()
+        remoteDataThrough = dataThrough
         remoteErrorText = nil
 
         displayRowsDirty = true
@@ -748,9 +788,15 @@ final class SystemWindowController: NSObject, NSWindowDelegate, NSTableViewDataS
             summaryLabel.stringValue = error
             summaryLabel.textColor = .systemRed
         } else if let updated = remoteLastUpdate {
-            summaryLabel.stringValue = "远程 \(host) · 更新于 \(Self.clockFormatter.string(from: updated))"
-                + " · \(remoteRows.count) 个进程"
-            summaryLabel.textColor = .secondaryLabelColor
+            if let through = remoteDataThrough {
+                summaryLabel.stringValue = "远程 \(host) · 数据来自 \(Self.dataTimeFormatter.string(from: through))"
+                    + "（\(Self.ageText(from: through))）· \(remoteRows.count) 个进程"
+                summaryLabel.textColor = .systemOrange
+            } else {
+                summaryLabel.stringValue = "远程 \(host) · 刷新于 \(Self.clockFormatter.string(from: updated))"
+                    + " · \(remoteRows.count) 个进程"
+                summaryLabel.textColor = .secondaryLabelColor
+            }
         } else {
             summaryLabel.stringValue = "远程 \(host) · 正在连接…"
             summaryLabel.textColor = .secondaryLabelColor

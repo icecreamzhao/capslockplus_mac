@@ -814,6 +814,21 @@ func runSelfTest() -> Int32 {
         }
     }
 
+    // ageText：远端回退数据的"多久以前"，四个分界各覆盖一个
+    let ageNow = Date()
+    let ageCases: [(TimeInterval, String)] = [
+        (0, "刚刚"),
+        (30 * 60, "30 分钟前"),
+        (5 * 3600, "5 小时前"),
+        (3 * 86_400, "3 天前"),
+    ]
+    for (offset, expected) in ageCases {
+        let actual = SystemWindowController.ageText(from: ageNow.addingTimeInterval(-offset), now: ageNow)
+        if actual != expected {
+            failures.append("ageText \(Int(offset))s -> \(actual), expected \(expected)")
+        }
+    }
+
     // 往返自检：动作的 name 必须能被 parse 回同一个动作。
     // 这条是防"新增动作时忘了同步 name 或解析表"——两处手工映射，漏一处编译照样过。
     for (key, action) in Action.fixedTable {
