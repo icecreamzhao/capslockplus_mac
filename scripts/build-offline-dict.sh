@@ -235,7 +235,7 @@ import sqlite3
 import sys
 
 db, expected = sys.argv[1], set(sys.argv[2:])
-checks = [("xinhua", "一"), ("wuguanghua", "学习"), ("xsjhy", "你好")]
+checks = [("xinhua", "一"), ("wuguanghua", "学习"), ("xsjhy", "学习")]
 con = sqlite3.connect(db)
 failed = []
 for source, word in checks:
