@@ -598,13 +598,14 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
 
     private static func findAsset(named name: String, in directory: String) -> String? {
         guard let enumerator = FileManager.default.enumerator(atPath: directory) else { return nil }
+        let maxDepth = 4   // ldoce6ec 的音频挂在 hwd/bre/9/ 这种四层目录下
         for case let relative as String in enumerator {
             let depth = relative.split(separator: "/").count
-            guard depth <= 2 else { continue }
+            guard depth <= maxDepth else { continue }
             let full = (directory as NSString).appendingPathComponent(relative)
             var isDirectory: ObjCBool = false
             if FileManager.default.fileExists(atPath: full, isDirectory: &isDirectory), isDirectory.boolValue {
-                if depth >= 2 { enumerator.skipDescendants() }
+                if depth >= maxDepth { enumerator.skipDescendants() }
                 continue
             }
             if (relative as NSString).lastPathComponent.caseInsensitiveCompare(name) == .orderedSame {

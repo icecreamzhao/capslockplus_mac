@@ -15,7 +15,8 @@
 要点：
 - readmdict 会 import lzo，缺 python-lzo 直接 SystemExit；这里先塞一个占位模块，
   只有真遇到 LZO 压缩块才会报错（这两本都是 zlib）。
-- mdx 里同一词条常有重复（牛津 205k 条对应约 100k 词），按小写 key 去重，保留第一条。
+- mdx 里同一词条常有重复（牛津 205k 条对应约 100k 词），按小写 key 去重；
+  有正文的真实词条优先，@@@LINK= 跳转只做补充，不会顶掉同 key 的正文。
 - 正文抽成纯文本行，形如 "verb\t（不顾责任等）离弃，遗弃，抛弃"，
   App 里直接按行渲染，不需要再解析 HTML。
 - 所有词典都走 extract_generic。
@@ -138,7 +139,7 @@ def clean_ipa(value):
     if text[-1] in "ˈˌˋˊ.,-":
         return None
     if len(text) == 1:
-        return text
+        return text if IPA_MARK_RE.fullmatch(text) else None
     if len(re.sub(r"[^A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡ]", "", text)) < 2:
         return None
     return text
@@ -204,7 +205,11 @@ def _phonetic_candidate(source):
             text = strip_tags(inner)
             text = text.split("$")[0]                   # cambridge：英/美用 $ 分隔，只留前半
             text = text.replace("~", "").replace("·", "")
-            text = re.sub(r"\s+", "", text)             # 剥标签留下的空格对 IPA 没意义
+            # 多词词头的音标保留词间空格，只收掉重音符两侧的空格（merriam 的 "/ ˈ bɚd /"）；
+            # 重音符前面是字母时那是对词边界，空格得留着
+            text = re.sub(r"\s+", " ", text).strip()
+            text = re.sub(r"(^|[^A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡ])\s+([ˈˌ])", r"\1\2", text)
+            text = re.sub(r"([ˈˌ])\s+", r"\1", text)
             fragments = [f for f in IPA_FRAGMENT_RE.findall(text) if len(f) >= 1]
             if not fragments:
                 continue
@@ -300,6 +305,16 @@ SELF_TEST_PHONETIC_CASES = (
         "merriam",
         '<span class="hpron_word ifont">/<span class="smark">ˈ</span>bɚd/</span>',
         "ˈbɚd",
+    ),
+    (
+        "merriam'spaced",
+        '<span class="hpron_word ifont">/<span class="smark">ˈ</span> bɚd/</span>',
+        "ˈbɚd",
+    ),
+    (
+        "multiword",
+        '<span class="ipa">ˌtuːθaʊnz ənd ˈwʌn əˌspeɪs ˈɒdəsi</span>',
+        "ˌtuːθaʊnz ənd ˈwʌn əˌspeɪs ˈɒdəsi",
     ),
     (
         "cambridge",
@@ -459,7 +474,7 @@ def main():
         started = time.time()
         mdict = MDX(path)
         rows = []
-        aliases = []
+        aliases = {}
         seen = set()
         alias_seen = set()
         total = 0
@@ -471,24 +486,28 @@ def main():
             if not headword or len(headword) > 40:
                 continue
             lookup = headword.lower()
-            if lookup in seen or lookup in alias_seen:
+            if lookup in seen:
                 continue
             html_text = value.decode("utf-8", "replace")
             # 跳转条目：只在 aliases 里记一笔，正文后面统一展开
             stripped = html_text.lstrip("\ufeff").strip()
             if stripped.startswith(LINK_PREFIX):
+                if lookup in alias_seen:
+                    continue
                 target = clean(stripped[len(LINK_PREFIX):]).lower()
                 if target:
                     alias_seen.add(lookup)
-                    aliases.append((lookup, target, label))
+                    aliases[lookup] = target
                 continue
             phonetic, lines, audio_bre, audio_ame = extractor(html_text)
             if not lines:
                 continue
+            alias_seen.discard(lookup)   # 同 key 的真实正文优先，先前记的跳转作废
             seen.add(lookup)
             rows.append((lookup, label, headword, phonetic, "\n".join(lines), audio_bre, audio_ame,
                          deflate(html_text)))
 
+        rows_alias = [(word, target, label) for word, target in aliases.items() if word not in seen]
         conn.executemany(
             "INSERT OR REPLACE INTO entries(word, source, headword, phonetic, body, audio_bre, audio_ame, html)"
             " VALUES (?,?,?,?,?,?,?,?)",
@@ -496,11 +515,11 @@ def main():
         )
         conn.executemany(
             "INSERT OR REPLACE INTO aliases(word, target, source) VALUES (?,?,?)",
-            aliases,
+            rows_alias,
         )
         meta = {
             f"count_{label}": str(len(rows)),
-            f"aliases_{label}": str(len(aliases)),
+            f"aliases_{label}": str(len(rows_alias)),
             f"label_{label}": labels.get(label, label),
             f"order_{label}": str(order),
             f"css_{label}": stylesheets.get(label, ""),
@@ -508,7 +527,7 @@ def main():
         conn.executemany("INSERT OR REPLACE INTO meta VALUES (?,?)", meta.items())
         conn.commit()
         processed.append(label)
-        print(f"{label}: 读入 {total} 条 → 落库 {len(rows)} 条，跳转 {len(aliases)} 条，"
+        print(f"{label}: 读入 {total} 条 → 落库 {len(rows)} 条，跳转 {len(rows_alias)} 条，"
               f"用时 {time.time() - started:.1f}s")
 
     if args.expand_aliases:
