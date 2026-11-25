@@ -290,7 +290,39 @@ TAG_RE = re.compile(r"<[^>]+>")
 PHONETIC_PATTERNS = (
     re.compile(r'<span class="[^"]*phonetic[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
     re.compile(r'<span class="PRONS?[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
+    # 各家 class 命名不统一：phon / ipa / pron / pronunciation 都可能
+    re.compile(r'<span[^>]*class="[^"]*(?:phon|ipa|pron)[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
+    re.compile(r'<div[^>]*class="[^"]*(?:phon|ipa)[^"]*"[^>]*>(.*?)</div>', re.S | re.I),
 )
+
+# 只接受这些字符构成的音标（含常见 IPA 与重音符号），别的当解析失败
+IPA_CHARS_RE = re.compile(r"^[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡçʎɹɾʔːˑˈˌˋˊʤʧ'’()\-\s.,/]+$")
+IPA_MARK_RE = re.compile(r"[æɑɒɔəɜɛɪʊʌðθʃʒŋɡˈˌː]")
+
+
+def clean_ipa(value):
+    """把抓到的音标规范成裸 IPA（去掉两侧 / 与 [ ]）；不像音标就返回 None。
+
+    库里存的是不带斜杠的形式，显示层自己加 /.../，否则界面会出现 //əˈbændən//。
+    必须含至少一个 IPA 专用字符，避免把 "noun" 这种普通单词当成音标。
+    """
+    if not value:
+        return None
+    text = strip_tags(value).replace("\u200b", "")
+    text = re.sub(r"\s+", " ", text).strip()
+    text = text.strip("/[]").strip()
+    if not (2 <= len(text) <= 60):
+        return None
+    if not IPA_CHARS_RE.match(text):
+        return None
+    if not IPA_MARK_RE.search(text):
+        return None
+    if text[-1] in "ˈˌˋˊ.,-":
+        return None
+    if len(re.sub(r"[^A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡ]", "", text)) < 2:
+        return None
+    return text
+
 
 
 def strip_tags(fragment):
@@ -312,9 +344,8 @@ def extract_generic(source):
         match = pattern.search(source)
         if not match:
             continue
-        value = strip_tags(match.group(1))
+        value = clean_ipa(match.group(1))
         if value:
-            # 两侧的 / 或 [ ] 原样保留，如 /ˈæbəndən/
             phonetic = value
             break
 
