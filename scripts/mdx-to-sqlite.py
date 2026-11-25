@@ -7,7 +7,10 @@
         --dict ldoce6="$HOME/Documents/dict/LDOCE/LongmanDictionaryOfContemporaryEnglish6thEnEn.mdx" \
         --label oalecd9=牛津高阶 --label ldoce6=朗文 \
         [--css ldoce6=LongmanDictionaryOfContemporaryEnglish6thEnEn.css] \
-        [--limit 3000] [--show abandon hello 你好] [--verify] [--expand-aliases]
+      [--limit 3000] [--show abandon hello 你好] [--verify] [--phon-stats] [--expand-aliases]
+
+    # 音标提取自检（不需要 mdx）：
+    python3 scripts/mdx-to-sqlite.py --self-test-phonetic
 
 要点：
 - readmdict 会 import lzo，缺 python-lzo 直接 SystemExit；这里先塞一个占位模块，
@@ -286,18 +289,33 @@ BLOCK_TAGS = {
 DECOR = "·•∙‧・◇◆●○■□▪▫★☆※→←↑↓▸▹►▻"
 TAG_RE = re.compile(r"<[^>]+>")
 
-# 兜底音标：先找 class 里带 phonetic 的 span，再找 PRON/PRONS
-PHONETIC_PATTERNS = (
-    re.compile(r'<span class="[^"]*phonetic[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
-    re.compile(r'<span class="PRONS?[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
-    # 各家 class 命名不统一：phon / ipa / pron / pronunciation 都可能
-    re.compile(r'<span[^>]*class="[^"]*(?:phon|ipa|pron)[^"]*"[^>]*>(.*?)</span>', re.S | re.I),
-    re.compile(r'<div[^>]*class="[^"]*(?:phon|ipa)[^"]*"[^>]*>(.*?)</div>', re.S | re.I),
+# 兜底音标：按优先级找容器。精确类名在前、泛匹配垫底。
+# class="pron" 必须带收尾引号，否则会抢到 ldoce6ec 的 proncodes 外层；
+# class="pr" 同理，不能匹配到 pr 开头的别的类名。
+PHONETIC_CONTAINER_PATTERNS = (
+    re.compile(r'class="ipa"'),                          # cambridge：ipa 藏在 pron 里
+    re.compile(r'class="pron"'),                         # ldoce6ec：真正音标
+    re.compile(r'class="PRON'),                          # macmillan：PRON show_less
+    re.compile(r'class="hpron_word'),                    # merriam：hpron_word ifont
+    re.compile(r'class="pr"'),                           # lugu
+    re.compile(r'class="[^"]*phonetic[^"]*"'),
+    re.compile(r'class="[^"]*(?:phon|ipa|pron)[^"]*"'),  # 垫底：允许抢到旧写法
+)
+
+# 从剥完标签的文本里挑音标片段：斜杠、$、~ 之类都会把片段切开
+IPA_FRAGMENT_RE = re.compile(
+    r"[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡɚɝɐɫɵʉɯɤɨʏɶɥɦʔɹɾɻʈɖɟʂʐɕʑʧʤʰʲˠˤˈˌːˑ'’()\-\s]+"
 )
 
 # 只接受这些字符构成的音标（含常见 IPA 与重音符号），别的当解析失败
-IPA_CHARS_RE = re.compile(r"^[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡçʎɹɾʔːˑˈˌˋˊʤʧ'’()\-\s.,/]+$")
-IPA_MARK_RE = re.compile(r"[æɑɒɔəɜɛɪʊʌðθʃʒŋɡˈˌː]")
+IPA_CHARS_RE = re.compile(
+    r"^[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡçʎɹɾʔːˑˈˌˋˊʤʧ"
+    r"ɚɝɐɫɵʉɯɤɨʏɶɥɦɻʈɖɟʂʐɕʑʰʲˠˤ"
+    r"'’()\-\s.,/]+$"
+)
+IPA_MARK_RE = re.compile(
+    r"[æɑɒɔəɜɛɪʊʌðθʃʒŋɡˈˌːɚɝɐɫɵʉɯɤɨʏɶɥɦɹɾɻʈɖɟʂʐɕʑʧʤʰʲ]"
+)
 
 
 def clean_ipa(value):
@@ -329,6 +347,71 @@ def strip_tags(fragment):
     return clean(html.unescape(TAG_RE.sub(" ", fragment)))
 
 
+def _container_inner(source, class_pos):
+    """取 class 属性所在标签的完整内层 HTML，按同名标签开闭计数配平。
+
+    非贪婪的 (.*?)</span> 遇到嵌套 span 就截断，所以不能再用它取容器内容。
+    """
+    open_start = source.rfind("<", 0, class_pos)
+    if open_start == -1:
+        return None
+    head = re.match(r"<([A-Za-z][\w:-]*)", source[open_start:open_start + 40])
+    if not head:
+        return None
+    tag = head.group(1)
+    open_end = source.find(">", open_start)
+    if open_end == -1:
+        return None
+    if source[open_end - 1] == "/":
+        return ""
+
+    open_re = re.compile(r"<" + re.escape(tag) + r"(?=[\s/>])", re.I)
+    close_re = re.compile(r"</" + re.escape(tag) + r"\s*>", re.I)
+    depth = 1
+    pos = open_end + 1
+    while pos < len(source):
+        opening = open_re.search(source, pos)
+        closing = close_re.search(source, pos)
+        if opening is None and closing is None:
+            return None
+        if opening is not None and (closing is None or opening.start() < closing.start()):
+            tag_end = source.find(">", opening.start())
+            if tag_end == -1:
+                return None
+            if source[tag_end - 1] != "/":
+                depth += 1
+            pos = tag_end + 1
+        else:
+            depth -= 1
+            if depth == 0:
+                return source[open_end + 1:closing.start()]
+            pos = closing.end()
+    return None
+
+
+def _phonetic_candidate(source):
+    """按优先级找音标容器，剥标签后取最长 IPA 片段；全都不像音标返回 None。"""
+    for pattern in PHONETIC_CONTAINER_PATTERNS:
+        match = pattern.search(source)
+        if not match:
+            continue
+        inner = _container_inner(source, match.start())
+        if inner is None:
+            continue
+        text = strip_tags(inner)
+        text = text.split("$")[0]                       # cambridge：英/美用 $ 分隔，只留前半
+        text = text.replace("~", "").replace("·", "")
+        text = re.sub(r"\s+", "", text)                 # 剥标签留下的空格对 IPA 没意义
+        fragments = [f for f in IPA_FRAGMENT_RE.findall(text) if len(f) >= 2]
+        if not fragments:
+            continue
+        for fragment in sorted(fragments, key=len, reverse=True):
+            value = clean_ipa(fragment)
+            if value:
+                return value
+    return None
+
+
 def block_tag_name(tag):
     """<div ...> / </div> / <br/> 都归一成 div / br。
 
@@ -345,15 +428,7 @@ def extract_generic(source):
 
     返回 (phonetic, body_lines, audio_bre, audio_ame)；v1 一律不出音频。
     """
-    phonetic = None
-    for pattern in PHONETIC_PATTERNS:
-        match = pattern.search(source)
-        if not match:
-            continue
-        value = clean_ipa(match.group(1))
-        if value:
-            phonetic = value
-            break
+    phonetic = _phonetic_candidate(source)
 
     lines = []
     current = []
@@ -386,6 +461,66 @@ def extract_generic(source):
     flush()
 
     return phonetic, lines, None, None
+
+
+# ---------------------------------------------------------------- 音标自检
+
+SELF_TEST_PHONETIC_CASES = (
+    (
+        "ldoce6ec",
+        '<span class="proncodes"><span class="neutral"> /</span>'
+        '<span class="pron">bɜːd</span>'
+        '<span class="amevarpron">…</span><span class="neutral">/</span></span>',
+        "bɜːd",
+    ),
+    (
+        "macmillan",
+        '<span class="PRON show_less"><span class="SEP PRON-before"> /</span>bɜː(r)d'
+        '<span class="SEP PRON-after">/</span></span>',
+        "bɜː(r)d",
+    ),
+    (
+        "merriam",
+        '<span class="hpron_word ifont">/<span class="smark">ˈ</span>bɚd/</span>',
+        "ˈbɚd",
+    ),
+    (
+        "cambridge",
+        '<span class="pron">/<span class="ipa">bɜːd $ bɝːd</span>/</span>',
+        "bɜːd",
+    ),
+    ("lugu", '<span class="pr">ə\'bændən</span>', "ə'bændən"),
+)
+
+
+def self_test_phonetic():
+    """不依赖真实 mdx 的音标提取自检，返回进程退出码。"""
+    failures = []
+    for name, fragment, expected in SELF_TEST_PHONETIC_CASES:
+        got = _phonetic_candidate(fragment)
+        ok = got == expected
+        print(f"{'ok' if ok else 'FAIL':4} {name:9} -> {got!r} (want {expected!r})")
+        if not ok:
+            failures.append(name)
+
+    # proncodes 是外层容器，不能被抓出一对斜杠当音标
+    got = _phonetic_candidate('<span class="proncodes"><span class="neutral"> /</span></span>')
+    ok = got is None
+    print(f"{'ok' if ok else 'FAIL':4} {'proncodes':9} -> {got!r} (want None)")
+    if not ok:
+        failures.append("proncodes")
+
+    got = clean_ipa("noun")
+    ok = got is None
+    print(f"{'ok' if ok else 'FAIL':4} {'clean_ipa':9} -> {got!r} (want None)")
+    if not ok:
+        failures.append("clean_ipa(noun)")
+
+    if failures:
+        print(f"self-test-phonetic: 失败 {len(failures)} 项：{', '.join(failures)}")
+        return 1
+    print("self-test-phonetic: 全部通过")
+    return 0
 
 
 LINK_PREFIX = "@@@LINK="
@@ -430,16 +565,24 @@ def parse_pairs(items):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True)
-    parser.add_argument("--dict", action="append", required=True, help="name=path.mdx，可重复")
+    parser.add_argument("--out", help="输出 sqlite 路径")
+    parser.add_argument("--dict", action="append", default=[], help="name=path.mdx，可重复")
     parser.add_argument("--label", action="append", default=[], help="name=中文显示名，与 --dict 对应")
     parser.add_argument("--css", action="append", default=[], help="name=主样式表文件名，与 --dict 对应")
     parser.add_argument("--limit", type=int, default=0, help="只处理前 N 条，用于试跑")
     parser.add_argument("--show", nargs="*", default=[], help="转换后打印这些词的解析结果")
     parser.add_argument("--verify", action="store_true", help="转换后打印每本词典的入库统计")
+    parser.add_argument("--phon-stats", action="store_true", help="转换后按 source 打印音标覆盖率")
+    parser.add_argument("--self-test-phonetic", action="store_true",
+                        help="只跑内置音标提取自检，不需要 mdx")
     parser.add_argument("--expand-aliases", action="store_true",
                         help="把 @@@LINK= 跳转展开成完整 entries 行（旧行为，占空间）")
     args = parser.parse_args()
+
+    if args.self_test_phonetic:
+        sys.exit(self_test_phonetic())
+    if not args.out or not args.dict:
+        parser.error("--out 和 --dict 为必需参数（自检请用 --self-test-phonetic）")
 
     specs = []
     for spec in args.dict:
@@ -583,6 +726,16 @@ def main():
             print(f"source={label} label={values.get('label_' + label) or '-'} "
                   f"order={values.get('order_' + label) or '-'} "
                   f"entries={count} aliases={alias_count}")
+
+    if args.phon_stats:
+        print("\n===== phonetic stats =====")
+        for label in processed:
+            entries, phonetic = conn.execute(
+                "SELECT COUNT(*), COUNT(NULLIF(phonetic, '')) FROM entries WHERE source = ?",
+                (label,),
+            ).fetchone()
+            percent = (phonetic / entries * 100) if entries else 0.0
+            print(f"source={label} entries={entries} phonetic={phonetic} ({percent:.1f}%)")
 
     # 收尾切回普通日志模式并整理一遍，避免留下 -wal/-shm
     conn.execute("PRAGMA journal_mode=DELETE")
