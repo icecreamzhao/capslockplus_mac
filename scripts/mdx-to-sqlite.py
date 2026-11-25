@@ -302,9 +302,10 @@ PHONETIC_CONTAINER_PATTERNS = (
     re.compile(r'class="[^"]*(?:phon|ipa|pron)[^"]*"'),  # 垫底：允许抢到旧写法
 )
 
-# 从剥完标签的文本里挑音标片段：斜杠、$、~ 之类都会把片段切开
+# 从剥完标签的文本里挑音标片段：斜杠、$、~ 之类都会把片段切开；
+# 点号是音节分隔（cambridge 写作 əˈbæn.dən），必须留在片段里
 IPA_FRAGMENT_RE = re.compile(
-    r"[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡɚɝɐɫɵʉɯɤɨʏɶɥɦʔɹɾɻʈɖɟʂʐɕʑʧʤʰʲˠˤˈˌːˑ'’()\-\s]+"
+    r"[A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡɚɝɐɫɵʉɯɤɨʏɶɥɦʔɹɾɻʈɖɟʂʐɕʑʧʤʰʲˠˤˈˌːˑ'’()\-\s.,]+"
 )
 
 # 只接受这些字符构成的音标（含常见 IPA 与重音符号），别的当解析失败
@@ -328,8 +329,8 @@ def clean_ipa(value):
         return None
     text = strip_tags(value).replace("\u200b", "")
     text = re.sub(r"\s+", " ", text).strip()
-    text = text.strip("/[]").strip()
-    if not (2 <= len(text) <= 60):
+    text = text.strip("/[]").strip(" .,;")
+    if not (1 <= len(text) <= 60):
         return None
     if not IPA_CHARS_RE.match(text):
         return None
@@ -337,6 +338,8 @@ def clean_ipa(value):
         return None
     if text[-1] in "ˈˌˋˊ.,-":
         return None
+    if len(text) == 1:
+        return text
     if len(re.sub(r"[^A-Za-zæɑɒɔəɜɛɪʊʌðθʃʒŋɡ]", "", text)) < 2:
         return None
     return text
@@ -392,23 +395,24 @@ def _container_inner(source, class_pos):
 def _phonetic_candidate(source):
     """按优先级找音标容器，剥标签后取最长 IPA 片段；全都不像音标返回 None。"""
     for pattern in PHONETIC_CONTAINER_PATTERNS:
-        match = pattern.search(source)
-        if not match:
-            continue
-        inner = _container_inner(source, match.start())
-        if inner is None:
-            continue
-        text = strip_tags(inner)
-        text = text.split("$")[0]                       # cambridge：英/美用 $ 分隔，只留前半
-        text = text.replace("~", "").replace("·", "")
-        text = re.sub(r"\s+", "", text)                 # 剥标签留下的空格对 IPA 没意义
-        fragments = [f for f in IPA_FRAGMENT_RE.findall(text) if len(f) >= 2]
-        if not fragments:
-            continue
-        for fragment in sorted(fragments, key=len, reverse=True):
-            value = clean_ipa(fragment)
-            if value:
-                return value
+        # 同一模式可能先命中音频容器之类的空壳，逐个试到第一个真音标为止
+        for count, match in enumerate(pattern.finditer(source)):
+            if count >= 20:
+                break
+            inner = _container_inner(source, match.start())
+            if inner is None:
+                continue
+            text = strip_tags(inner)
+            text = text.split("$")[0]                   # cambridge：英/美用 $ 分隔，只留前半
+            text = text.replace("~", "").replace("·", "")
+            text = re.sub(r"\s+", "", text)             # 剥标签留下的空格对 IPA 没意义
+            fragments = [f for f in IPA_FRAGMENT_RE.findall(text) if len(f) >= 1]
+            if not fragments:
+                continue
+            for fragment in sorted(fragments, key=len, reverse=True):
+                value = clean_ipa(fragment)
+                if value:
+                    return value
     return None
 
 
@@ -480,6 +484,20 @@ SELF_TEST_PHONETIC_CASES = (
         "bɜː(r)d",
     ),
     (
+        "macmillan'em",
+        '<span class="PRONS"><a href="sound://em_British_English_pronunciation.mp3">'
+        '<span class="OBJ">🔊</span></a></span>'
+        '<span class="PRON show_less"><span class="SEP PRON-before"> /</span>'
+        'əm<span class="SEP PRON-after">/</span></span>',
+        "əm",
+    ),
+    (
+        "ldoce6ec're",
+        '<span class="proncodes"><span class="neutral"> /</span>'
+        '<span class="pron">ə</span><span class="neutral">/</span></span>',
+        "ə",
+    ),
+    (
         "merriam",
         '<span class="hpron_word ifont">/<span class="smark">ˈ</span>bɚd/</span>',
         "ˈbɚd",
@@ -515,6 +533,13 @@ def self_test_phonetic():
     print(f"{'ok' if ok else 'FAIL':4} {'clean_ipa':9} -> {got!r} (want None)")
     if not ok:
         failures.append("clean_ipa(noun)")
+
+    for value, expected in (("a", None), ("ə", "ə")):
+        got = clean_ipa(value)
+        ok = got == expected
+        print(f"{'ok' if ok else 'FAIL':4} {'clean_ipa':9} -> {got!r} (want {expected!r})")
+        if not ok:
+            failures.append(f"clean_ipa({value})")
 
     if failures:
         print(f"self-test-phonetic: 失败 {len(failures)} 项：{', '.join(failures)}")
