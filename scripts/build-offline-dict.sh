@@ -5,18 +5,26 @@
 # 用法：
 #   scripts/build-offline-dict.sh            # 全量重建
 #   scripts/build-offline-dict.sh --only merc # 只跑一本，调试用（不替换正式库）
+#   scripts/build-offline-dict.sh --no-audio  # 不抽 mdd 里的读音
 #
-# 环境变量：DICT_ROOT（默认 ~/Documents/dict）、OUT_DIR（默认 ~/.config/capslock-plus-mac）
+# 环境变量：DICT_ROOT（默认 ~/Documents/dict）、OUT_DIR（默认 ~/.config/capslock-plus-mac）、
+#           DICT_AUDIO（默认 1 抽音频，设 0 关闭）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DICT_ROOT="${DICT_ROOT:-$HOME/Documents/dict}"
 OUT_DIR="${OUT_DIR:-$HOME/.config/capslock-plus-mac}"
+DICT_AUDIO="${DICT_AUDIO:-1}"
 DB="$OUT_DIR/dict.sqlite"
 NEW="$OUT_DIR/dict.sqlite.new"
 ASSETS="$OUT_DIR/dict-assets"
 CONVERTER="$SCRIPT_DIR/mdx-to-sqlite.py"
 ASSET_EXTRACTOR="$SCRIPT_DIR/extract-dict-assets.py"
+
+audio_enabled=1
+if [[ "$DICT_AUDIO" =~ ^(0|[Nn][Oo]|[Ff][Aa][Ll][Ss][Ee]|[Oo][Ff][Ff])$ ]]; then
+    audio_enabled=0
+fi
 
 # NAME|中文显示名|mdx 相对路径|主样式表文件名
 CATALOG=$(cat <<'EOF'
@@ -29,6 +37,9 @@ merriam|韦氏高阶|欧陆词典包资源/⑤韦氏系列词典 （共4本）/1
 newoxford|新牛津双解|欧陆词典包资源/①牛津系列词典（共15本）/6.英汉双 新牛津高阶2（精装版）/新牛双解词典.mdx|
 lugu|英汉大词典|欧陆词典包资源/⑦其他词典（共31本）/14.英汉大词典（陆谷孙）/陆谷孙.mdx|
 vocabcom|Vocabulary.com|欧陆词典包资源/⑦其他词典（共31本）/2.Vocabulary.com （精装版）/Vocabulary.com Dictionary.mdx|
+xinhua|新华字典|欧陆词典包资源/⑦其他词典（共31本）/20.新华字典/新华字典（汉英双语版）.mdx|
+wuguanghua|汉英大词典|欧陆词典包资源/⑦其他词典（共31本）/15.汉英大词典（吴光华）/吴光华汉英.mdx|
+xsjhy|新世纪汉英|欧陆词典包资源/⑦其他词典（共31本）/19.新世纪汉英大词典（精装版）/xsjhy20oct2.mdx|
 EOF
 )
 
@@ -44,9 +55,13 @@ while [ $# -gt 0 ]; do
             ONLY="${1#*=}"
             shift
             ;;
+        --no-audio)
+            audio_enabled=0
+            shift
+            ;;
         -h|--help)
-            echo "用法: $0 [--only NAME]"
-            echo "环境变量: DICT_ROOT（默认 ~/Documents/dict）、OUT_DIR（默认 ~/.config/capslock-plus-mac）"
+            echo "用法: $0 [--only NAME] [--no-audio]"
+            echo "环境变量: DICT_ROOT（默认 ~/Documents/dict）、OUT_DIR（默认 ~/.config/capslock-plus-mac）、DICT_AUDIO（默认 1）"
             exit 0
             ;;
         *)
@@ -130,7 +145,11 @@ for i in "${!names[@]}"; do
 done
 
 # ---------------------------------------------------------------- 3. mdd 资源
-echo "[3/4] 从 mdd 抽取排版资源"
+if [ "$audio_enabled" -eq 1 ]; then
+    echo "[3/4] 从 mdd 抽取排版资源与音频"
+else
+    echo "[3/4] 从 mdd 抽取排版资源（--no-audio）"
+fi
 mdd_paths=()
 mdd_names=()
 for i in "${!names[@]}"; do
@@ -150,10 +169,29 @@ else
     for j in "${!mdd_paths[@]}"; do
         mdd_args+=(--mdd "${mdd_paths[$j]}" --dict "${mdd_names[$j]}")
     done
+    audio_log="$(mktemp)"
     # 资源抽取失败不阻断词库构建，下次还能单独重跑
-    if ! "$PY" "$ASSET_EXTRACTOR" "${mdd_args[@]}"; then
+    extract_ok=1
+    if [ "$audio_enabled" -eq 1 ]; then
+        "$PY" "$ASSET_EXTRACTOR" "${mdd_args[@]}" --include-audio | tee "$audio_log" || extract_ok=0
+    else
+        "$PY" "$ASSET_EXTRACTOR" "${mdd_args[@]}" | tee "$audio_log" || extract_ok=0
+    fi
+    if [ "$extract_ok" -eq 0 ]; then
         echo "警告：mdd 资源抽取失败，保留已有资源继续" >&2
     fi
+    if [ "$audio_enabled" -eq 1 ]; then
+        awk -F'[:= ]+' '/: audio=[0-9]+ size=[0-9.]+MB$/ {
+                total += $3; mb = $5; sub(/MB$/, "", mb); total_mb += mb
+            }
+            END {
+                printf "  音频合计：%d 个文件，%.1f MB\n", total, total_mb
+                if (total_mb > 8192) {
+                    print "  提示：音频超过 8GB，占用较大（本机空间充足，确认后保留）"
+                }
+            }' "$audio_log"
+    fi
+    rm -f "$audio_log"
 fi
 
 # ---------------------------------------------------------------- 4. 校验替换
@@ -190,6 +228,36 @@ if problems:
     sys.exit(1)
 print("校验通过")
 PY
+
+echo "  中文词头抽查"
+"$PY" - "$NEW" "${names[@]}" <<'PY'
+import sqlite3
+import sys
+
+db, expected = sys.argv[1], set(sys.argv[2:])
+checks = [("xinhua", "一"), ("wuguanghua", "学习"), ("xsjhy", "你好")]
+con = sqlite3.connect(db)
+failed = []
+for source, word in checks:
+    if source not in expected:
+        continue
+    count = con.execute(
+        "SELECT COUNT(*) FROM entries WHERE source = ? AND word = ?", (source, word)
+    ).fetchone()[0]
+    print("  %s 查 %s -> %d 条" % (source, word, count))
+    if count < 1:
+        failed.append("%s 查不到 %s" % (source, word))
+if failed:
+    print("中文抽查失败：%s" % "；".join(failed), file=sys.stderr)
+    sys.exit(1)
+print("中文抽查通过")
+PY
+
+if [ -d "$ASSETS" ]; then
+    asset_files=$(find "$ASSETS" -type f | wc -l | tr -d ' ')
+    asset_size=$(du -sh "$ASSETS" 2>/dev/null | cut -f1)
+    echo "  assets：$asset_files 个文件，共 ${asset_size:-未知}"
+fi
 
 if [ -n "$ONLY" ]; then
     echo "调试模式（--only $ONLY）：已生成 $NEW，未替换 $DB"
