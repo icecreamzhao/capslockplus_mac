@@ -980,10 +980,15 @@ func runDictSelfTest() -> Int32 {
 
     if dict.debugHasMeta {
         let labels = dict.debugMetaLabels
+        // 这批是英英/英汉词典，没有中文词头，查中文只要求不崩、命中为空
         for word in ["abandon", "hello", "你好"] {
             let hits = dict.lookup(word)
             print("lookup \(word) hits=\(hits.count)")
             if hits.isEmpty {
+                if word == "你好" {
+                    print("  (expected: 未装汉英/反查词典)")
+                    continue
+                }
                 failures.append("no dictionary hit for \(word)")
             }
             for entry in hits {
