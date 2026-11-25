@@ -199,4 +199,4 @@ fi
 # 目标库若还带着旧的 -wal/-shm，替换主文件后会被误当成新库的日志，先清掉
 rm -f "$DB-wal" "$DB-shm"
 mv -f "$NEW" "$DB"
-echo "完成：$DB（$(du -h "$DB" | cut -f1)）"
+echo "完成：${DB}（$(du -h "$DB" | cut -f1)）"
