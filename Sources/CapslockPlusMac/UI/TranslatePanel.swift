@@ -39,6 +39,13 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     private var keyMonitor: Any?
     private var isShown = false
     private var audioPath: String?
+    /// 当前词条的资源目录（dict-assets/<source>/），sound:// 音频从这里找
+    private var currentAssetsDirectory: String?
+    /// 最近一次 sound:// 点击的结果，调试/自检用
+    private(set) var lastSoundURL: String?
+    private(set) var lastSoundPlayed = false
+    /// 当前 HTML 是否已经 didFinish（音频自检要等它）
+    private(set) var htmlDidLoad = false
     /// 一次查词命中的全部词典，以及当前显示的是第几本
     private var currentEntries: [DictEntry] = []
     private var currentIndex = 0
@@ -328,6 +335,8 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             keyMonitor = nil
         }
         clearSourceEntries()
+        currentAssetsDirectory = nil
+        htmlDidLoad = false
         guard isShown else { return }
         let hadFocus = isKeyWindow || NSApp.isActive
         // 划选状态留着没意义，下次开是新的词
@@ -350,6 +359,8 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
 
     private func renderText(title: String, subtitle: String, body: String, audio: String? = nil, keepPosition: Bool = false) {
         audioPath = audio
+        currentAssetsDirectory = nil
+        htmlDidLoad = false
         renderModeIsHTML = false
         webSelection = nil
         bodyWebView.isHidden = true
@@ -424,6 +435,8 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         let assetsDirectory = DictEntry.assetsDirectory(for: entry.source)
         let document = wrap(html: html, stylesheet: entry.stylesheet, assetsDirectory: assetsDirectory)
         let tempFile = (assetsDirectory as NSString).appendingPathComponent("__panel-entry.html")
+        currentAssetsDirectory = assetsDirectory
+        htmlDidLoad = false
 
         guard FileManager.default.fileExists(atPath: assetsDirectory),
               (try? document.write(toFile: tempFile, atomically: true, encoding: .utf8)) != nil else {
@@ -503,6 +516,7 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     // MARK: - WKNavigationDelegate / WKScriptMessageHandler
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        htmlDidLoad = true
         webView.evaluateJavaScript("Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)") { [weak self] result, _ in
             guard let self = self, self.renderModeIsHTML else { return }
             let measured = (result as? NSNumber)?.doubleValue ?? 160
@@ -510,6 +524,94 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             self.layoutHTML(htmlHeight: CGFloat(measured), keepPosition: true)
             Log.info("panel html measured h=\(Int(measured))")
         }
+    }
+
+    /// 面板里只允许原地加载资源；sound:// 和 entry:// 是词典自己的链接协议，拦下来自己处理。
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        switch url.scheme?.lowercased() {
+        case "sound":
+            decisionHandler(.cancel)
+            playSound(url: url)
+        case "entry":
+            decisionHandler(.cancel)
+            openEntry(url: url)
+        case "file":
+            decisionHandler(.allow)
+        default:
+            decisionHandler(.cancel)
+        }
+    }
+
+    /// sound://ameProns/abandon1.mp3 → dict-assets/<source>/ameProns/abandon1.mp3；
+    /// 只在 assets 目录里找，避免路径逃逸；找不到再按文件名下探 2 层。
+    private func playSound(url: URL) {
+        lastSoundURL = url.absoluteString
+        lastSoundPlayed = false
+        let encoded = (url.host ?? "") + url.path
+        let decoded = encoded.removingPercentEncoding ?? encoded
+        let relative = decoded.hasPrefix("/") ? String(decoded.dropFirst()) : decoded
+        guard !relative.isEmpty else {
+            Log.warn("dict audio missing url=\(url.absoluteString) reason=empty-path")
+            return
+        }
+        guard let directory = currentAssetsDirectory else {
+            Log.warn("dict audio missing url=\(url.absoluteString) reason=no-assets-dir")
+            return
+        }
+        var file = (directory as NSString).appendingPathComponent(relative)
+        if !FileManager.default.fileExists(atPath: file) {
+            let name = (relative as NSString).lastPathComponent
+            guard let found = findAsset(named: name, in: directory) else {
+                Log.warn("dict audio missing url=\(url.absoluteString)")
+                return
+            }
+            file = found
+        }
+        lastSoundPlayed = AudioPlayer.shared.play(file: file)
+    }
+
+    private func findAsset(named name: String, in directory: String) -> String? {
+        guard let enumerator = FileManager.default.enumerator(atPath: directory) else { return nil }
+        for case let relative as String in enumerator {
+            let depth = relative.split(separator: "/").count
+            guard depth <= 2 else { continue }
+            let full = (directory as NSString).appendingPathComponent(relative)
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: full, isDirectory: &isDirectory), isDirectory.boolValue {
+                if depth >= 2 { enumerator.skipDescendants() }
+                continue
+            }
+            if (relative as NSString).lastPathComponent.caseInsensitiveCompare(name) == .orderedSame {
+                return full
+            }
+        }
+        return nil
+    }
+
+    /// entry://word（host 可能为空，形如 entry:///word）→ 命中就用这个词重开面板。
+    private func openEntry(url: URL) {
+        let host = url.host?.removingPercentEncoding ?? url.host ?? ""
+        let path = url.path.removingPercentEncoding ?? url.path
+        let word = (host.isEmpty ? path : host)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !word.isEmpty else {
+            Log.warn("entry open failed reason=empty-word url=\(url.absoluteString)")
+            return
+        }
+        let entries = OfflineDictionary.shared.lookup(word)
+        guard !entries.isEmpty else {
+            Log.warn("entry open miss word=\(word)")
+            return
+        }
+        Log.info("entry open word=\(word) hits=\(entries.count)")
+        show(entries: entries, audio: entries.first?.audioPath, query: word)
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -676,6 +778,35 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         let picked = selectionText ?? "nil"
         report += " picked=\(picked.prefix(40))"
         return report
+    }
+
+    /// 自检用：等 HTML 加载完成后点第一个 sound:// 链接。
+    /// nil = HTML 没加载完；false = 词条里没有 sound 链接；true = 已点击。
+    func debugClickFirstSoundLink(timeout: Double = 3.0) -> Bool? {
+        let loadedBy = Date().addingTimeInterval(timeout)
+        while !htmlDidLoad, Date() < loadedBy {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard htmlDidLoad else { return nil }
+
+        var clicked = false
+        var finished = false
+        bodyWebView.evaluateJavaScript("""
+        (function () {
+            var link = document.querySelector('a[href^="sound://"]');
+            if (!link) { return 0; }
+            link.click();
+            return 1;
+        })()
+        """) { result, _ in
+            clicked = (result as? NSNumber)?.intValue == 1
+            finished = true
+        }
+        let jsBy = Date().addingTimeInterval(timeout)
+        while !finished, Date() < jsBy {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return clicked
     }
 
     @objc private func closePanel() {

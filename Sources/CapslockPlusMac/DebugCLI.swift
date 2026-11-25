@@ -367,6 +367,18 @@ enum DebugCLI {
             return 1
         }
 
+        if let index = CommandLine.arguments.firstIndex(of: "--panel-audio-selftest") {
+            guard index + 2 < CommandLine.arguments.count else {
+                print("usage: --panel-audio-selftest <word> <source>")
+                return 1
+            }
+            let delegate = PanelAudioSelfTestDelegate(word: CommandLine.arguments[index + 1],
+                                                      source: CommandLine.arguments[index + 2])
+            NSApplication.shared.delegate = delegate
+            NSApplication.shared.run()
+            return 1
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--audio-test"),
            index + 1 < CommandLine.arguments.count {
             let relative = CommandLine.arguments[index + 1]
@@ -660,6 +672,49 @@ final class PanelHTMLSelfTestDelegate: NSObject, NSApplicationDelegate {
                 exit(picked.isEmpty ? 1 : 0)
             }
         }
+    }
+}
+
+/// 工单 M：点词条 HTML 里的 sound:// 链接，验证导航被拦下且音频真的播了。
+final class PanelAudioSelfTestDelegate: NSObject, NSApplicationDelegate {
+    private let word: String
+    private let source: String
+
+    init(word: String, source: String) {
+        self.word = word
+        self.source = source
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let entries = OfflineDictionary.shared.lookup(word)
+        guard let entry = entries.first(where: { $0.source == source && !($0.html ?? "").isEmpty }) else {
+            print("panel-audio FAILED: no html entry word=\(word) source=\(source) hits=\(entries.count)")
+            exit(1)
+        }
+        TranslatePanel.shared.show(entry: entry, audio: entry.audioPath)
+
+        guard let clicked = TranslatePanel.shared.debugClickFirstSoundLink() else {
+            print("panel-audio FAILED: html not loaded")
+            exit(1)
+        }
+        guard clicked else {
+            print("panel-audio skipped: no sound link")
+            TranslatePanel.shared.dismiss()
+            exit(0)
+        }
+
+        // 链接点击后的导航回调是异步的，等 lastSoundURL 落下来再断言
+        let deadline = Date().addingTimeInterval(2.0)
+        while TranslatePanel.shared.lastSoundURL == nil, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        let url = TranslatePanel.shared.lastSoundURL
+        let played = TranslatePanel.shared.lastSoundPlayed
+        TranslatePanel.shared.dismiss()
+        print("panel-audio url=\(url ?? "nil") played=\(played ? 1 : 0)")
+        exit(url != nil && played ? 0 : 1)
     }
 }
 
