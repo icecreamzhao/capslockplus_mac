@@ -88,9 +88,10 @@ enum TranslateActions {
         }
 
         let entries = OfflineDictionary.shared.lookup(query)
-        if let first = entries.first {
+        if !entries.isEmpty {
             let audio = entries.compactMap { $0.audioPath }.first
-            TranslatePanel.shared.show(entry: first, audio: audio)
+            TranslatePanel.shared.show(entries: entries, audio: audio, query: query)
+            let first = entries[0]
             Log.info("dict hit query=\(query) hits=\(entries.count) source=\(first.source) lines=\(first.lines.count) audio=\(audio == nil ? 0 : 1)")
             return
         }

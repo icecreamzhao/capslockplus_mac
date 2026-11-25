@@ -360,6 +360,13 @@ enum DebugCLI {
             return 1
         }
 
+        if CommandLine.arguments.contains("--panel-multi-selftest") {
+            let delegate = PanelMultiSelfTestDelegate()
+            NSApplication.shared.delegate = delegate
+            NSApplication.shared.run()
+            return 1
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--audio-test"),
            index + 1 < CommandLine.arguments.count {
             let relative = CommandLine.arguments[index + 1]
@@ -593,6 +600,40 @@ final class PanelSelfTestDelegate: NSObject, NSApplicationDelegate {
                 print("afterDismiss active=\(active) frontmost=\(front)")
                 let restored = active == 0
                 exit((picked == expected && stable && restored) ? 0 : 1)
+            }
+        }
+    }
+}
+
+
+final class PanelMultiSelfTestDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let entries = ["a", "b", "c"].map { source in
+            DictEntry(source: source, headword: "word", phonetic: nil,
+                      body: "body-\(source)", audioBre: nil, audioAme: nil, html: nil)
+        }
+        TranslatePanel.shared.show(entries: entries, audio: nil, query: "word")
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            let buttonCount = TranslatePanel.shared.debugSourceButtonCount
+            let rowVisible = !TranslatePanel.shared.debugSourceRowHidden
+            let initialIndex = TranslatePanel.shared.debugSelectedSourceIndex
+
+            TranslatePanel.shared.switchTo(index: 2)
+            let switchedBody = TranslatePanel.shared.debugBodyText
+
+            TranslatePanel.shared.show(entry: entries[0], audio: nil)
+            let singleHidden = TranslatePanel.shared.debugSourceRowHidden
+
+            let switchOK = buttonCount == 3 && rowVisible && initialIndex == 0 && switchedBody == "body-c"
+            print("panel-multi buttons=\(buttonCount) rowVisible=\(rowVisible ? 1 : 0) initial=\(initialIndex)"
+                  + " body=\(switchedBody) singleHidden=\(singleHidden ? 1 : 0)")
+            print("panel-multi selftest \(switchOK && singleHidden ? "OK" : "FAILED")")
+
+            TranslatePanel.shared.dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                print("afterDismiss shown=\(TranslatePanel.shared.isShowing ? 1 : 0)")
+                exit(switchOK && singleHidden ? 0 : 1)
             }
         }
     }

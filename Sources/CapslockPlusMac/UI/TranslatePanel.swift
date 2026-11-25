@@ -7,6 +7,16 @@ final class PanelButton: NSButton {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// 来源切换小胶囊：无边框自绘底色，宽度跟着标题走
+private final class SourceButton: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        let title = attributedTitle.size()
+        return NSSize(width: ceil(title.width) + 14, height: max(ceil(title.height) + 4, 20))
+    }
+}
+
 /// 查词浮层：无边框、不激活 App、贴鼠标位置。
 ///
 /// 两种渲染模式：
@@ -24,10 +34,15 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     private var bodyWebView: WKWebView!
     private let speakerButton = PanelButton()
     private let closeButton = PanelButton()
+    private let sourceStack = NSStackView()
     private var dismissTimer: Timer?
     private var keyMonitor: Any?
     private var isShown = false
     private var audioPath: String?
+    /// 一次查词命中的全部词典，以及当前显示的是第几本
+    private var currentEntries: [DictEntry] = []
+    private var currentIndex = 0
+    private var currentAudio: String?
     /// 显示浮层前的前台 App；关掉时要还给它，否则点了浮层再打字会没地方去
     private var previousApp: NSRunningApplication?
 
@@ -37,10 +52,14 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     private var webSelection: String?
     private var currentHTMLHeight: CGFloat = 0
 
-    private let width: CGFloat = 460
+    private let baseWidth: CGFloat = 460
+    private var width: CGFloat = 460
     private let padding: CGFloat = 14
     private let bodyFont = NSFont.systemFont(ofSize: 13)
     private let headerHeight: CGFloat = 26
+    private let sourceRowHeight: CGFloat = 22
+    private let sourceRowGap: CGFloat = 6
+    private var sourceRowWidth: CGFloat = 0
     private let maxHTMLHeight: CGFloat = 520
 
     private init() {
@@ -133,8 +152,17 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         closeButton.sendAction(on: [.leftMouseDown])
         speakerButton.sendAction(on: [.leftMouseDown])
 
+        sourceStack.orientation = .horizontal
+        sourceStack.alignment = .centerY
+        sourceStack.distribution = .fill
+        sourceStack.spacing = 6
+        sourceStack.wantsLayer = true
+        sourceStack.layer?.masksToBounds = true
+        sourceStack.isHidden = true
+
         effectView.addSubview(titleLabel)
         effectView.addSubview(subtitleLabel)
+        effectView.addSubview(sourceStack)
         effectView.addSubview(bodyTextView)
         effectView.addSubview(bodyWebView)
         effectView.addSubview(speakerButton)
@@ -151,10 +179,12 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     // MARK: - 对外接口
 
     func showPending(query: String) {
+        clearSourceEntries()
         renderText(title: query, subtitle: "查询中…", body: "", keepPosition: updatingInPlace)
     }
 
     func show(result: Translation) {
+        clearSourceEntries()
         renderText(title: result.query, subtitle: "在线 · " + result.engine, body: result.displayText,
                    keepPosition: updatingInPlace)
     }
@@ -162,9 +192,36 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     private var updatingInPlace: Bool { isShown }
 
     func show(entry: DictEntry, audio: String?) {
+        currentEntries = [entry]
+        currentIndex = 0
+        currentAudio = audio
+        show(entry: entry, audio: audio, keepPosition: updatingInPlace)
+    }
+
+    /// 一次命中多本词典时，整张列表都交给面板，顶部提供来源切换。
+    func show(entries: [DictEntry], audio: String?, query: String) {
+        guard let first = entries.first else { return }
+        currentEntries = entries
+        currentIndex = 0
+        currentAudio = audio
+        show(entry: first, audio: first.audioPath ?? audio, keepPosition: updatingInPlace)
+    }
+
+    /// 切到列表里的第 index 本词典。点击来源按钮和 ⌘↑/⌘↓ 都走这里。
+    func switchTo(index: Int) {
+        guard currentEntries.indices.contains(index) else { return }
+        guard index != currentIndex else { return }
+        currentIndex = index
+        let entry = currentEntries[index]
+        Log.info("panel switch source=\(entry.source) index=\(index)")
+        show(entry: entry, audio: entry.audioPath ?? currentAudio, keepPosition: true)
+    }
+
+    private func show(entry: DictEntry, audio: String?, keepPosition: Bool) {
+        rebuildSourceRow()
         let useHTML = Config.shared.panelRenderMode == "html" && entry.html != nil
         if useHTML, let html = entry.html {
-            renderHTML(entry: entry, html: html, audio: audio, keepPosition: updatingInPlace)
+            renderHTML(entry: entry, html: html, audio: audio, keepPosition: keepPosition)
             return
         }
         var subtitle = entry.sourceLabel
@@ -178,15 +235,75 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             return line.replacingOccurrences(of: "\t", with: "  ")
         }
         renderText(title: entry.headword, subtitle: subtitle, body: lines.joined(separator: "\n"),
-                   audio: audio, keepPosition: updatingInPlace)
+                   audio: audio, keepPosition: keepPosition)
     }
 
     func showHint(_ text: String) {
+        clearSourceEntries()
         renderText(title: "caps+t", subtitle: "", body: text)
     }
 
     func show(error: String) {
+        clearSourceEntries()
         renderText(title: "没有结果", subtitle: "", body: error)
+    }
+
+    private func clearSourceEntries() {
+        currentEntries.removeAll()
+        currentIndex = 0
+        currentAudio = nil
+        rebuildSourceRow()
+    }
+
+    /// 按 currentEntries 重建顶部来源按钮；只有一条命中时整行隐藏。
+    private func rebuildSourceRow() {
+        for view in sourceStack.arrangedSubviews {
+            sourceStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        guard currentEntries.count > 1 else {
+            sourceStack.isHidden = true
+            sourceStack.frame = .zero
+            sourceRowWidth = 0
+            width = baseWidth
+            return
+        }
+
+        sourceStack.isHidden = false
+        let font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        for (index, entry) in currentEntries.enumerated() {
+            let selected = index == currentIndex
+            let button = SourceButton()
+            button.isBordered = false
+            button.bezelStyle = .inline
+            button.wantsLayer = true
+            button.layer?.cornerRadius = 6
+            button.layer?.masksToBounds = true
+            button.layer?.backgroundColor = (selected ? NSColor.controlAccentColor
+                : NSColor.labelColor.withAlphaComponent(0.14)).cgColor
+            button.attributedTitle = NSAttributedString(string: entry.sourceLabel, attributes: [
+                .font: font,
+                .foregroundColor: selected ? NSColor.white : NSColor.labelColor,
+            ])
+            button.tag = index
+            button.target = self
+            button.action = #selector(selectSource(_:))
+            button.toolTip = entry.sourceLabel
+            button.setContentHuggingPriority(.required, for: .horizontal)
+            button.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+            button.invalidateIntrinsicContentSize()
+            sourceStack.addArrangedSubview(button)
+        }
+
+        sourceStack.layoutSubtreeIfNeeded()
+        let buttonWidth = sourceStack.arrangedSubviews.reduce(CGFloat(0)) { $0 + $1.intrinsicContentSize.width }
+        let gaps = CGFloat(max(0, currentEntries.count - 1)) * sourceStack.spacing
+        let needed = max(ceil(sourceStack.fittingSize.width), ceil(buttonWidth + gaps))
+        sourceRowWidth = needed
+        // 10 本也全铺开：按钮按内容宽度收紧，面板不够宽就横向长一点
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
+        let screenCap = max(baseWidth, (screen?.visibleFrame.width ?? 900) - 24)
+        width = min(max(baseWidth, needed + padding * 2), screenCap)
     }
 
     /// 浮层正文里划选的文字；没有选区返回 nil。
@@ -210,6 +327,7 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
             NSEvent.removeMonitor(monitor)
             keyMonitor = nil
         }
+        clearSourceEntries()
         guard isShown else { return }
         let hadFocus = isKeyWindow || NSApp.isActive
         // 划选状态留着没意义，下次开是新的词
@@ -250,9 +368,12 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         let bodyHeight = body.isEmpty ? 0 : measure(body, font: bodyFont, width: textWidth)
         let titleHeight: CGFloat = 21
         let subtitleHeight: CGFloat = subtitle.isEmpty ? 0 : 14
-        let spacing: CGFloat = (body.isEmpty || subtitleHeight == 0) ? 0 : 6
+        let rowVisible = !sourceStack.isHidden
+        let hasContentBelowSubtitle = bodyHeight > 0 || rowVisible
+        let spacing: CGFloat = (hasContentBelowSubtitle && subtitleHeight > 0) ? 6 : 0
+        let sourceExtra = rowVisible ? sourceRowHeight + (bodyHeight > 0 ? sourceRowGap : 0) : 0
 
-        var height = padding * 2 + titleHeight + subtitleHeight + spacing + bodyHeight
+        var height = padding * 2 + titleHeight + subtitleHeight + spacing + bodyHeight + sourceExtra
         height = max(height, 58)
 
         let anchor = (x: frame.origin.x, top: frame.maxY)
@@ -271,6 +392,11 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         if subtitleHeight > 0 {
             subtitleLabel.frame = NSRect(x: padding, y: top - subtitleHeight, width: textWidth, height: subtitleHeight)
             top -= subtitleHeight + spacing
+        }
+        if rowVisible {
+            sourceStack.frame = NSRect(x: padding, y: top - sourceRowHeight,
+                                       width: min(sourceRowWidth, textWidth), height: sourceRowHeight)
+            top -= sourceRowHeight + (bodyHeight > 0 ? sourceRowGap : 0)
         }
         if bodyHeight > 0 {
             bodyTextView.frame = NSRect(x: padding, y: padding, width: textWidth, height: bodyHeight)
@@ -349,7 +475,11 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
 
     private func layoutHTML(htmlHeight: CGFloat, keepPosition: Bool) {
         currentHTMLHeight = min(max(htmlHeight, 90), maxHTMLHeight)
-        let height = headerHeight + currentHTMLHeight + padding
+        let rowVisible = !sourceStack.isHidden
+        // HTML 模式下 title/subtitle 是隐藏的，多留 8pt 给顶部关闭按钮，
+        // 免得它和来源切换行叠在一起
+        let sourceExtra = rowVisible ? sourceRowHeight + sourceRowGap + 8 : 0
+        let height = headerHeight + sourceExtra + currentHTMLHeight + padding
         let anchor = (x: frame.origin.x, top: frame.maxY)
         setFrame(NSRect(x: 0, y: 0, width: width, height: height), display: true)
 
@@ -360,7 +490,12 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         if audioPath != nil {
             speakerButton.frame = NSRect(x: closeX - 22, y: top - closeSize + 3, width: closeSize, height: closeSize)
         }
-        bodyWebView.frame = NSRect(x: 8, y: 8, width: width - 16, height: height - headerHeight - 8)
+        let bodyHeight = height - headerHeight - sourceExtra - 8
+        bodyWebView.frame = NSRect(x: 8, y: 8, width: width - 16, height: bodyHeight)
+        if rowVisible {
+            sourceStack.frame = NSRect(x: padding, y: 8 + bodyHeight + sourceRowGap,
+                                       width: min(sourceRowWidth, width - padding * 2), height: sourceRowHeight)
+        }
 
         finishLayout(anchor: anchor, keepPosition: keepPosition)
     }
@@ -451,16 +586,36 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
         setFrameOrigin(NSPoint(x: x, y: y))
     }
 
-    /// Esc 关闭（浮层是 key 的时候才收得到本地按键）。
+    /// Esc 关闭；⌘↑/⌘↓ 在多本词典之间切换（浮层是 key 的时候才收得到本地按键）。
     private func installEscapeMonitor() {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard event.keyCode == 53 else { return event }
-            self?.dismiss()
-            return nil
+            guard let self = self else { return event }
+            if event.keyCode == 53 {
+                self.dismiss()
+                return nil
+            }
+            if event.modifierFlags.contains(.command), (event.keyCode == 126 || event.keyCode == 125),
+               self.currentEntries.count > 1 {
+                self.stepSource(event.keyCode == 126 ? -1 : 1)
+                return nil
+            }
+            return event
         }
     }
 
+    private func stepSource(_ delta: Int) {
+        let count = currentEntries.count
+        guard count > 1 else { return }
+        switchTo(index: (currentIndex + delta + count) % count)
+    }
+
     var debugOrigin: NSPoint { frame.origin }
+
+    /// 自检用：来源切换行里的按钮数量、是否隐藏、当前选中项和正文。
+    var debugSourceButtonCount: Int { sourceStack.arrangedSubviews.count }
+    var debugSourceRowHidden: Bool { sourceStack.isHidden }
+    var debugSelectedSourceIndex: Int { currentIndex }
+    var debugBodyText: String { bodyTextView.string }
 
     /// 自检用：强行把浮层挪到屏幕外，再走一次 clamp，返回夹取后的 frame
     func debugForceOffscreenAndClamp() -> (before: NSRect, after: NSRect, visible: NSRect)? {
@@ -526,6 +681,10 @@ final class TranslatePanel: NSPanel, WKNavigationDelegate, WKScriptMessageHandle
     @objc private func closePanel() {
         Log.info("panel closed by button")
         dismiss()
+    }
+
+    @objc private func selectSource(_ sender: NSButton) {
+        switchTo(index: sender.tag)
     }
 
     @objc private func playAudio() {
