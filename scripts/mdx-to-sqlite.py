@@ -18,7 +18,7 @@
 - mdx 里同一词条常有重复（牛津 205k 条对应约 100k 词），按小写 key 去重，保留第一条。
 - 正文抽成纯文本行，形如 "verb\t（不顾责任等）离弃，遗弃，抛弃"，
   App 里直接按行渲染，不需要再解析 HTML。
-- 只有 oalecd9 / ldoce6 有专用解析器，其他词典走 extract_generic 兜底。
+- 所有词典都走 extract_generic。
 - 正文以 @@@LINK= 开头的条目是跳转条目：不进 entries，只记进 aliases，
   查词时由 App 跳一次。需要旧行为（把跳转展开成完整词条）时加 --expand-aliases。
 """
@@ -62,220 +62,15 @@ def tokens(source):
                 yield "text", text
 
 
-def tag_name(tag):
-    name = tag.strip("<>").split()[0].lstrip("/").lower()
-    return name
-
-
-def attr(tag, name):
-    match = re.search(name + r'\s*=\s*"([^"]*)"', tag)
-    return match.group(1) if match else None
-
-
 def clean(text):
     text = re.sub(r"\s+", " ", text).strip()
     return text
-
-
-# ---------------------------------------------------------------- 牛津高阶
-
-def extract_oalecd(source):
-    """返回 (phonetic, body_lines, audio_bre, audio_ame)。
-
-    牛津的标签不是标准 HTML：<pos> 词性、<def> 释义、<chn> 中文、
-    <x ... wd="例句原文"> 例句、<phon> 音标。
-    """
-    phonetic = None
-    senses = []          # [(pos, 中文释义)]
-    examples = []        # [(英文例句, 中文翻译)]
-    pos = None
-    depth_chn = 0
-    depth_def = 0
-    in_example = False
-    example_en = None
-    example_zh = None
-    buffer = ""
-    capture = None       # 'pos' / 'chn' / 'phon'
-
-    for kind, value in tokens(source):
-        if kind == "text":
-            if capture:
-                buffer += value
-            continue
-
-        name = tag_name(value)
-        closing = value.startswith("</")
-
-        if name == "pos" and not closing:
-            capture, buffer = "pos", ""
-        elif name == "pos" and closing:
-            if capture == "pos":
-                pos = clean(buffer) or pos
-            capture = None
-        elif name == "phon" and not closing and phonetic is None:
-            capture, buffer = "phon", ""
-        elif name == "phon" and closing:
-            if capture == "phon":
-                phonetic = clean(buffer)
-            capture = None
-        elif name == "def" and not closing:
-            depth_def += 1
-        elif name == "def" and closing:
-            depth_def = max(0, depth_def - 1)
-        elif name == "x" and not closing:
-            in_example = True
-            example_en = attr(value, "wd")
-            example_zh = None
-        elif name == "x" and closing:
-            if example_en and example_zh:
-                examples.append((clean(example_en), clean(example_zh)))
-            in_example = False
-            example_en = None
-            example_zh = None
-        elif name == "chn" and not closing:
-            depth_chn += 1
-            capture, buffer = ("example" if in_example else "sense"), ""
-        elif name == "chn" and closing:
-            depth_chn = max(0, depth_chn - 1)
-            if capture == "example":
-                example_zh = clean(buffer)
-            elif capture == "sense":
-                text = clean(buffer)
-                if text and len(text) < 200:
-                    senses.append((pos, text))
-            capture = None
-
-    lines = []
-    seen = set()
-    last_pos = None
-    for sense_pos, text in senses:
-        label = sense_pos or last_pos
-        last_pos = sense_pos or last_pos
-        key = (label, text)
-        if key in seen:
-            continue
-        seen.add(key)
-        if label and label != last_pos:
-            pass
-        prefix = f"{label}\t" if label else ""
-        lines.append(prefix + text)
-        if len(lines) >= 12:
-            break
-
-    for en, zh in examples[:3]:
-        lines.append(f"例\t{en} {zh}")
-
-    return phonetic, lines, None, None
-
-
-# ---------------------------------------------------------------- 朗文 LDOCE6
-
-def extract_ldoce(source):
-    """返回 (phonetic, body_lines, audio_bre, audio_ame)。"""
-    phonetic = None
-    pos = None
-    senses = []
-    examples = []
-    capture = None
-    buffer = ""
-    depth = 0
-    skip_depth = 0
-    stack = []
-
-    audio_bre = None
-    audio_ame = None
-    for match in re.finditer(r'sound://([^"]+\.mp3)', source):
-        path = match.group(1)
-        if audio_bre is None and "/bre/" in path:
-            audio_bre = path
-        elif audio_ame is None and "/ame/" in path:
-            audio_ame = path
-
-    # 这些容器里的内容（同义词、搭配、短语、语法框）对查词卡片没用，整块跳过
-    NOISE = ("thes", "syn", "colloc", "collocation", "phrase", "gram", "wsexa", "signpost", "freq")
-
-    for kind, value in tokens(source):
-        if kind == "text":
-            if capture:
-                buffer += value
-            continue
-
-        name = tag_name(value)
-        closing = value.startswith("</")
-        current_class = attr(value, "class") or ""
-        classes = current_class.split()
-
-        if name == "span":
-            if closing:
-                if stack:
-                    stack.pop()
-                if skip_depth > 0:
-                    skip_depth -= 1
-                    continue
-                if capture in ("pron", "pos", "def", "example") and depth > 0:
-                    depth -= 1
-                    if depth == 0:
-                        text = clean(buffer)
-                        if capture == "pron" and phonetic is None:
-                            phonetic = text.strip("/ ")
-                        elif capture == "pos" and text:
-                            pos = text.strip(" ,.;")
-                        elif capture == "def" and text:
-                            senses.append((pos, text))
-                        elif capture == "example" and text:
-                            examples.append(text)
-                        capture = None
-                        buffer = ""
-                continue
-
-            stack.append(classes)
-            if skip_depth > 0:
-                skip_depth += 1
-                continue
-            if any(token in classes for token in NOISE):
-                skip_depth = 1
-                continue
-            wanted = None
-            if "pron" in classes:
-                wanted = "pron"
-            elif "pos" in classes:
-                wanted = "pos"
-            elif "def" in classes:
-                wanted = "def"
-            elif "example" in classes:
-                wanted = "example"
-            if wanted:
-                if depth == 0:
-                    capture, buffer = wanted, ""
-                depth += 1
-
-    lines = []
-    seen = set()
-    seen_text = set()
-    for sense_pos, text in senses:
-        if (sense_pos, text) in seen or text in seen_text:
-            continue
-        seen.add((sense_pos, text))
-        seen_text.add(text)
-        prefix = f"{sense_pos}\t" if sense_pos else ""
-        lines.append(prefix + text)
-        if len(lines) >= 10:
-            break
-    for example in examples[:3]:
-        lines.append(f"例\t{example}")
-    return phonetic, lines, audio_bre, audio_ame
 
 
 def deflate(text: str) -> bytes:
     """raw deflate（无 zlib 头），Swift 的 NSData.decompressed(using: .zlib) 要的就是这个格式。"""
     compressor = zlib.compressobj(6, zlib.DEFLATED, -15)
     return compressor.compress(text.encode("utf-8")) + compressor.flush()
-
-
-EXTRACTORS = {
-    "oalecd9": extract_oalecd,
-    "ldoce6": extract_ldoce,
-}
 
 
 # ---------------------------------------------------------------- 通用解析
@@ -659,7 +454,7 @@ def main():
 
     processed = []
     for order, (label, path) in enumerate(specs):
-        extractor = EXTRACTORS.get(label) or extract_generic
+        extractor = extract_generic
 
         started = time.time()
         mdict = MDX(path)
