@@ -389,6 +389,10 @@ enum DebugCLI {
             return entries.isEmpty ? 1 : 0
         }
 
+        if CommandLine.arguments.contains("--dict-selftest") {
+            return runDictSelfTest()
+        }
+
         if let index = CommandLine.arguments.firstIndex(of: "--translate-test"),
            index + 1 < CommandLine.arguments.count {
             let query = CommandLine.arguments[index + 1]
@@ -879,6 +883,98 @@ func runSelfTest() -> Int32 {
         FileHandle.standardError.write(Data("selftest FAILED: \(failure)\n".utf8))
     }
     return 1
+}
+
+/// 离线词库自检：meta 驱动多词典的 label/order/css 是否生效，老库是否还能兜底。
+func runDictSelfTest() -> Int32 {
+    var failures: [String] = []
+    let dict = OfflineDictionary.shared
+    let path = OfflineDictionary.databasePath
+    let dbExists = FileManager.default.fileExists(atPath: path)
+    print("db=\(dbExists ? "present" : "missing") path=\(path)")
+
+    // 未知 source 必须原样回落，不能变成空字符串
+    let unknown = DictEntry(source: "unknown-source", headword: "x", phonetic: nil,
+                            body: "", audioBre: nil, audioAme: nil, html: nil)
+    print("fallback label=\(unknown.sourceLabel) stylesheet=\(unknown.stylesheet ?? "nil")")
+    if unknown.sourceLabel != "unknown-source" {
+        failures.append("unknown source label -> \(unknown.sourceLabel), expected source name")
+    }
+
+    func finish() -> Int32 {
+        if failures.isEmpty {
+            print("dict selftest OK")
+            return 0
+        }
+        for failure in failures {
+            FileHandle.standardError.write(Data("dict selftest FAILED: \(failure)\n".utf8))
+        }
+        return 1
+    }
+
+    guard dict.isAvailable else {
+        print("dict unavailable: lookup must return empty without crashing")
+        for word in ["abandon", "hello", "你好"] {
+            let hits = dict.lookup(word)
+            print("lookup \(word) hits=\(hits.count)")
+            if !hits.isEmpty {
+                failures.append("lookup \(word) returned rows without db")
+            }
+        }
+        return finish()
+    }
+
+    let infos = dict.debugSourceInfos
+    print("meta=\(dict.debugHasMeta ? "present" : "missing") sources=\(infos.count)")
+    for info in infos {
+        let order = info.order.map { String($0) } ?? "-"
+        print("  source=\(info.source) label=\(info.label) order=\(order) entries=\(info.count)")
+    }
+    print("entries=\(dict.debugEntryCount) aliases=\(dict.debugHasAliases ? "present" : "missing")")
+
+    if dict.debugHasMeta {
+        let labels = dict.debugMetaLabels
+        for word in ["abandon", "hello", "你好"] {
+            let hits = dict.lookup(word)
+            print("lookup \(word) hits=\(hits.count)")
+            if hits.isEmpty {
+                failures.append("no dictionary hit for \(word)")
+            }
+            for entry in hits {
+                print("  [\(entry.source)] label=\(entry.sourceLabel)")
+                guard let expected = labels[entry.source] else {
+                    failures.append("\(entry.source) has no label meta")
+                    continue
+                }
+                if entry.sourceLabel != expected {
+                    failures.append("\(entry.source) label=\(entry.sourceLabel), meta=\(expected)")
+                }
+                if entry.sourceLabel == entry.source {
+                    failures.append("\(entry.source) shows bare source name")
+                }
+            }
+        }
+    } else {
+        print("meta missing: fallback labels expected")
+        let legacy = DictEntry(source: "oalecd9", headword: "hello", phonetic: nil,
+                               body: "", audioBre: nil, audioAme: nil, html: nil)
+        print("legacy oalecd9 label=\(legacy.sourceLabel) stylesheet=\(legacy.stylesheet ?? "nil")")
+        if legacy.sourceLabel != "牛津高阶" || legacy.stylesheet != "oalecd9.css" {
+            failures.append("legacy oalecd9 fallback changed")
+        }
+        for word in ["abandon", "hello", "你好"] {
+            let hits = dict.lookup(word)
+            print("lookup \(word) hits=\(hits.count)")
+            for entry in hits {
+                print("  [\(entry.source)] label=\(entry.sourceLabel)")
+                if entry.sourceLabel.isEmpty {
+                    failures.append("\(entry.source) empty fallback label")
+                }
+            }
+        }
+    }
+
+    return finish()
 }
 
 func runTransformSelfTest() -> Int32 {

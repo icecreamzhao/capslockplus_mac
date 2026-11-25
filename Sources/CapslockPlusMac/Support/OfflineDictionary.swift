@@ -10,8 +10,33 @@ struct DictEntry {
     let audioAme: String?
     /// 原始词条 HTML（带词典自己的 css 类名/自定义标签），nil = 库里没有这一列的内容
     let html: String?
+    /// 词典中文名：优先取 meta 的 label_<source>，老库回落到下面的写死表
+    let sourceLabel: String
+    /// 词典自带的样式表文件名（在 dict-assets/<source>/ 里）
+    let stylesheet: String?
 
-    var sourceLabel: String {
+    init(source: String,
+         headword: String,
+         phonetic: String?,
+         body: String,
+         audioBre: String?,
+         audioAme: String?,
+         html: String?,
+         sourceLabel: String? = nil,
+         stylesheet: String? = nil) {
+        self.source = source
+        self.headword = headword
+        self.phonetic = phonetic
+        self.body = body
+        self.audioBre = audioBre
+        self.audioAme = audioAme
+        self.html = html
+        self.sourceLabel = sourceLabel ?? Self.fallbackLabel(for: source)
+        self.stylesheet = stylesheet ?? Self.fallbackStylesheet(for: source)
+    }
+
+    /// 没有 meta 的老库兜底显示名
+    static func fallbackLabel(for source: String) -> String {
         switch source {
         case "oalecd9": return "牛津高阶"
         case "ldoce6": return "朗文"
@@ -23,8 +48,8 @@ struct DictEntry {
 
     var audioPath: String? { audioBre ?? audioAme }
 
-    /// 词典自带的样式表文件名（在 dict-assets/<source>/ 里）
-    var stylesheet: String? {
+    /// 没有 meta 的老库兜底样式表
+    static func fallbackStylesheet(for source: String) -> String? {
         switch source {
         case "oalecd9": return "oalecd9.css"
         case "ldoce6": return "LongmanDictionaryOfContemporaryEnglish6thEnEn.css"
@@ -38,6 +63,14 @@ struct DictEntry {
     }
 }
 
+/// 词典来源的元信息，供 --dict-selftest 打印
+struct DictSourceInfo {
+    let source: String
+    let label: String
+    let order: Int?
+    let count: Int
+}
+
 /// 离线词库：查 ~/.config/capslock-plus-mac/dict.sqlite（由 scripts/mdx-to-sqlite.py 生成）。
 /// 只读，单连接，主线程同步查询（本地 SQLite 命中在 1ms 量级）。
 final class OfflineDictionary {
@@ -49,6 +82,10 @@ final class OfflineDictionary {
 
     private var db: OpaquePointer?
     private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+    private var labels: [String: String] = [:]
+    private var orders: [String: Int] = [:]
+    private var cssFiles: [String: String] = [:]
+    private var hasMeta = false
 
     private init() {
         let path = Self.databasePath
@@ -63,11 +100,51 @@ final class OfflineDictionary {
             db = nil
             return
         }
+        loadMeta()
         let count = scalar("SELECT COUNT(*) FROM entries")
         Log.info("dict loaded entries=\(count) path=\(path)")
     }
 
     var isAvailable: Bool { db != nil }
+
+    // MARK: - 自检用的只读元信息
+
+    var debugHasMeta: Bool { hasMeta }
+    var debugMetaLabels: [String: String] { labels }
+    var debugEntryCount: Int { db == nil ? 0 : scalar("SELECT COUNT(*) FROM entries") }
+    var debugHasAliases: Bool {
+        guard db != nil else { return false }
+        return scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'aliases'") > 0
+    }
+
+    /// 所有词典来源（按 order 升序），label/order 来自 meta，缺失时回落写死表。
+    var debugSourceInfos: [DictSourceInfo] {
+        guard db != nil else { return [] }
+        var counts: [String: Int] = [:]
+        var statement: OpaquePointer?
+        let sql = "SELECT source, COUNT(*) FROM entries GROUP BY source"
+        if sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK {
+            defer { sqlite3_finalize(statement) }
+            while sqlite3_step(statement) == SQLITE_ROW {
+                guard let pointer = sqlite3_column_text(statement, 0) else { continue }
+                counts[String(cString: pointer)] = Int(sqlite3_column_int64(statement, 1))
+            }
+        } else {
+            Log.warn("dict prepare failed rc=\(sqlite3_errcode(db)) msg=\(String(cString: sqlite3_errmsg(db)))")
+        }
+        let sources = Set(counts.keys).union(labels.keys).union(orders.keys)
+        return sources.map { source in
+            DictSourceInfo(source: source,
+                           label: labels[source].flatMap { $0.isEmpty ? nil : $0 }
+                               ?? DictEntry.fallbackLabel(for: source),
+                           order: orders[source],
+                           count: counts[source] ?? 0)
+        }.sorted { lhs, rhs in
+            let left = lhs.order ?? Int.max
+            let right = rhs.order ?? Int.max
+            return left == right ? lhs.source < rhs.source : left < right
+        }
+    }
 
     func lookup(_ raw: String) -> [DictEntry] {
         guard db != nil else { return [] }
@@ -84,7 +161,7 @@ final class OfflineDictionary {
         let sql = """
             SELECT source, headword, phonetic, body, audio_bre, audio_ame, html
             FROM entries WHERE word = ?
-            ORDER BY CASE source WHEN 'oalecd9' THEN 0 WHEN 'ldoce6' THEN 1 ELSE 2 END
+            ORDER BY source
             """
         var statement: OpaquePointer?
         let prepare = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
@@ -104,17 +181,59 @@ final class OfflineDictionary {
             let blobIndex: Int32 = 6
             let htmlBlob = sqlite3_column_blob(statement, blobIndex)
             let htmlBytes = Int(sqlite3_column_bytes(statement, blobIndex))
+            let source = text(0) ?? ""
             rows.append(DictEntry(
-                source: text(0) ?? "",
+                source: source,
                 headword: text(1) ?? word,
                 phonetic: text(2),
                 body: text(3) ?? "",
                 audioBre: text(4),
                 audioAme: text(5),
-                html: Self.inflate(htmlBlob, htmlBytes)
+                html: Self.inflate(htmlBlob, htmlBytes),
+                sourceLabel: labels[source].flatMap { $0.isEmpty ? nil : $0 },
+                stylesheet: cssFiles[source].flatMap { $0.isEmpty ? nil : $0 }
             ))
         }
-        return rows
+        // 多词典按 meta 的 order 排；同一 source 内保持 SQLite 返回顺序（稳定排序）
+        return rows.enumerated().sorted { lhs, rhs in
+            let left = orders[lhs.element.source] ?? Int.max
+            let right = orders[rhs.element.source] ?? Int.max
+            return left == right ? lhs.offset < rhs.offset : left < right
+        }.map { $0.element }
+    }
+
+    /// 打开库后读一次 meta：label_ / order_ / css_ 前缀分桶。
+    /// 老库没有 meta 表，prepare 失败就静默跳过，一切回落到 DictEntry 里的写死表。
+    private func loadMeta() {
+        defer {
+            let names = labels.keys.sorted { lhs, rhs in
+                let left = orders[lhs] ?? Int.max
+                let right = orders[rhs] ?? Int.max
+                return left == right ? lhs < rhs : left < right
+            }.map { labels[$0] ?? $0 }
+            Log.info("dict meta sources=\(labels.count) labels=\(names.joined(separator: ","))")
+        }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT k, v FROM meta", -1, &statement, nil) == SQLITE_OK else {
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        hasMeta = true
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let keyPointer = sqlite3_column_text(statement, 0),
+                  let valuePointer = sqlite3_column_text(statement, 1) else { continue }
+            let key = String(cString: keyPointer)
+            let value = String(cString: valuePointer)
+            if key.hasPrefix("label_") {
+                labels[String(key.dropFirst("label_".count))] = value
+            } else if key.hasPrefix("order_") {
+                if let order = Int(value.trimmingCharacters(in: .whitespaces)) {
+                    orders[String(key.dropFirst("order_".count))] = order
+                }
+            } else if key.hasPrefix("css_") {
+                cssFiles[String(key.dropFirst("css_".count))] = value
+            }
+        }
     }
 
     /// raw deflate → String；转换脚本用 zlib.compressobj(..., wbits=-15) 压的
